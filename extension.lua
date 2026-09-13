@@ -119,13 +119,13 @@ end
 -- =========================================================================
 local dlg = nil
 local sessionBusy, exiting = false, false
-local radius, softness, opacity, spacing = 16, 0.5, 1.0, 0.25
+local radius, softness, opacity, spacing = 14, 0.67, 1.0, 0.25
 local workImg, sourcePoint, offset, snapshot = nil, nil, nil, nil
 local undoStack, undoPos = nil, 0
 local tiledMode = TILED_NONE
 local celX, celY, celColorMode = 0, 0, nil
-local sessionSprite, sessionLayer, sessionFrame = nil, nil, nil
-local originalCel, originalImageId, originalImageVersion = nil, nil, nil
+local sessionSprite, sessionLayer, sessionFrame, sessionCel = nil, nil, nil, nil
+local originalCel, originalImageId = nil, nil
 local backgroundLayer, transparentIndex = false, 0
 local paletteColors, paletteSize, paletteCache, paletteCacheSize = nil, 0, nil, 0
 local brushMask, brushMaskR, brushMaskS, brushMaskO = nil, -1, -1, -1
@@ -150,8 +150,8 @@ end
 local function disposeState()
 	workImg, sourcePoint, offset, snapshot = nil, nil, nil, nil
 	undoStack, undoPos = nil, 0
-	sessionSprite, sessionLayer, sessionFrame = nil, nil, nil
-	originalCel, originalImageId, originalImageVersion = nil, nil, nil
+	sessionSprite, sessionLayer, sessionFrame, sessionCel = nil, nil, nil, nil
+	originalCel, originalImageId = nil, nil
 	celX, celY, celColorMode = 0, 0, nil
 	backgroundLayer, transparentIndex = false, 0
 	paletteColors, paletteSize, paletteCache, paletteCacheSize = nil, 0, nil, 0
@@ -195,7 +195,7 @@ local function copyPixels(source, destination, dx, dy)
 	end
 end
 
-local function capturePalette(sprite, frameNumber)
+local function paletteForFrame(sprite, frameNumber)
 	local chosen, chosenFrame = nil, -1
 	for _, palette in ipairs(sprite.palettes) do
 		local frame = palette.frame
@@ -204,6 +204,11 @@ local function capturePalette(sprite, frameNumber)
 			chosen, chosenFrame = palette, number
 		end
 	end
+	return chosen
+end
+
+local function capturePalette(sprite, frameNumber)
+	local chosen = paletteForFrame(sprite, frameNumber)
 	if not chosen or #chosen == 0 then return false end
 	paletteSize = math.min(256, #chosen)
 	paletteColors, paletteCache, paletteCacheSize = {}, {}, 0
@@ -211,6 +216,25 @@ local function capturePalette(sprite, frameNumber)
 		local color = chosen:getColor(index)
 		paletteColors[index] = { color.red, color.green, color.blue, color.alpha }
 	end
+	return true
+end
+
+local function paletteMatchesSession(sprite, frameNumber)
+	local chosen = paletteForFrame(sprite, frameNumber)
+	if not chosen or math.min(256, #chosen) ~= paletteSize then return false end
+
+	for index = 0, paletteSize - 1 do
+		local saved = paletteColors[index]
+		local current = chosen:getColor(index)
+		if not saved or
+		   current.red ~= saved[1] or
+		   current.green ~= saved[2] or
+		   current.blue ~= saved[3] or
+		   current.alpha ~= saved[4] then
+			return false
+		end
+	end
+
 	return true
 end
 
@@ -225,19 +249,19 @@ local function initState(prefs)
 		return false, tr("unsupported_color_mode")
 	end
 
-	sessionSprite, sessionLayer, sessionFrame = sprite, activeCel.layer, activeCel.frameNumber
+	sessionSprite, sessionLayer, sessionFrame, sessionCel = sprite, activeCel.layer, activeCel.frameNumber, activeCel
 	celX, celY = activeCel.position.x, activeCel.position.y
 	celColorMode = mode
 	backgroundLayer = sessionLayer.isBackground
 	transparentIndex = sprite.transparentColor
 	originalCel = Image(activeCel.image)
-	originalImageId, originalImageVersion = activeCel.image.id, activeCel.image.version
+	originalImageId = activeCel.image.id
 	if mode == ColorMode.INDEXED and not capturePalette(sprite, sessionFrame) then
 		return false, tr("no_usable_palette")
 	end
 
-	radius = boundedNumber(prefs.radius, 16, 1, 64, true)
-	softness = boundedNumber(prefs.softness, 0.5, 0, 1)
+	radius = boundedNumber(prefs.radius, 14, 1, 64, true)
+	softness = boundedNumber(prefs.softness, 0.67, 0, 1)
 	opacity = boundedNumber(prefs.opacity, 1, 0, 1)
 	spacing, tiledMode = 0.25, TILED_NONE
 	workImg = newSessionImage(sprite.width, sprite.height)
@@ -388,19 +412,47 @@ local function getWorkDirtyBounds()
 	return x1, y1, x2, y2
 end
 
-local function applyToCel()
-	if not app.activeSprite or app.activeSprite.id ~= sessionSprite.id then
-		error(tr("active_sprite_changed"))
+local function validateSession()
+	local spriteOk, sameSprite = pcall(function()
+		return sessionSprite and app.activeSprite and
+		       app.activeSprite.id == sessionSprite.id
+	end)
+	if not spriteOk or not sameSprite then
+		return tr("active_sprite_changed")
 	end
-	local activeCel = sessionLayer:cel(sessionFrame)
-	if not activeCel then error(tr("original_cel_missing")) end
+
+	local celOk, activeCel = pcall(function()
+		return sessionLayer and sessionLayer:cel(sessionFrame) or nil
+	end)
+	if not celOk or not activeCel then return tr("original_cel_missing") end
+	if activeCel ~= sessionCel then return tr("original_cel_changed") end
+
 	local problem = layerProblem(sessionLayer, sessionSprite)
-	if problem then error(problem) end
-	if sessionSprite.width ~= workImg.width or sessionSprite.height ~= workImg.height or
-	   activeCel.position.x ~= celX or activeCel.position.y ~= celY or
-	   activeCel.image.id ~= originalImageId or activeCel.image.version ~= originalImageVersion then
-		error(tr("original_cel_changed"))
+	if problem then return problem end
+
+	if sessionSprite.width ~= workImg.width or
+	   sessionSprite.height ~= workImg.height or
+	   activeCel.position.x ~= celX or
+	   activeCel.position.y ~= celY or
+	   sessionLayer.isBackground ~= backgroundLayer or
+	   activeCel.image.id ~= originalImageId or
+	   not activeCel.image:isEqual(originalCel) then
+		return tr("original_cel_changed")
 	end
+
+	if celColorMode == ColorMode.INDEXED then
+		if (not backgroundLayer and
+		    sessionSprite.transparentColor ~= transparentIndex) or
+		   not paletteMatchesSession(sessionSprite, sessionFrame) then
+			return tr("original_cel_changed")
+		end
+	end
+
+	return nil
+end
+
+local function applyToCel()
+	local activeCel = sessionLayer:cel(sessionFrame)
 	local x1, y1, x2, y2 = getWorkDirtyBounds()
 	if x1 > x2 or y1 > y2 then return end
 	local left, top = math.min(celX, x1), math.min(celY, y1)
@@ -434,9 +486,9 @@ end
 
 local function ensureBrushMask()
 	if brushMaskR == radius and brushMaskS == softness and brushMaskO == opacity then return end
-	brushMaskR, brushMaskS, brushMaskO = radius, softness, opacity
-	brushMask = Image(radius*2+1, radius*2+1, ColorMode.GRAYSCALE)
-	brushMask:clear()
+	-- Publish the mask and its cache keys only after the complete build succeeds.
+	local nextMask = Image(radius*2+1, radius*2+1, ColorMode.GRAYSCALE)
+	nextMask:clear()
 	local inner = radius*(1-softness)
 	for dy = -radius, radius do
 		for dx = -radius, radius do
@@ -445,9 +497,11 @@ local function ensureBrushMask()
 				if softness <= 0 or distance <= inner then value = 1
 				else value = 1-smoothstep((distance-inner)/(radius-inner)) end
 			end
-			brushMask:drawPixel(dx+radius, dy+radius, math.floor(value*opacity*255+0.5))
+			nextMask:drawPixel(dx+radius, dy+radius, math.floor(value*opacity*255+0.5))
 		end
 	end
+	brushMask = nextMask
+	brushMaskR, brushMaskS, brushMaskO = radius, softness, opacity
 end
 
 local function isTiledX() return tiledMode == TILED_X or tiledMode == TILED_BOTH end
@@ -589,47 +643,44 @@ local function errorTraceback(message)
 	return text
 end
 
-local function reportFailure(message, err)
+local function reportFailure(message, err, buttons)
 	local report = tostring(err)
 	local separator = package.config:sub(1, 1)
-	local tempPath = os.getenv("TEMP") or os.getenv("TMP") or "."
+	local tempPath = os.getenv("TEMP") or os.getenv("TMP") or os.getenv("TMPDIR") or "."
 	local errorPath = tempPath .. separator .. "stamp-brush-error.txt"
-	local reportWritten = false
+	local errorFile = nil
 
-	if io and io.open then
-		local errorFile = io.open(errorPath, "wb")
-		if errorFile then
-			errorFile:write(report)
-			if report:sub(-1) ~= "\n" then
-				errorFile:write("\n")
-			end
-			errorFile:close()
-			reportWritten = true
-		end
-	end
+	-- Aseprite throws when file access is denied. Reporting must never replace
+	-- the original error or tear down a recoverable session.
+	local writeOk, reportWritten = pcall(function()
+		if not io or not io.open then return false end
+		errorFile = io.open(errorPath, "wb")
+		if not errorFile then return false end
+		local written = errorFile:write(report, report:sub(-1) == "\n" and "" or "\n")
+		local closed = errorFile:close()
+		errorFile = nil
+		return not not written and not not closed
+	end)
+	if errorFile then pcall(function() errorFile:close() end) end
+	reportWritten = writeOk and reportWritten == true
 
-	local summary = nil
-	for line in report:gmatch("[^\r\n]+") do
-		local trimmed = line:match("^%s*(.-)%s*$")
-		local tail = trimmed:match("^.*:%s+(.+)$")
-
-		if tail and
-		   tail ~= "stack traceback:" and
-		   not tail:match("^in function") and
-		   not tail:match("^in upvalue") and
-		   not tail:match("^in method") and
-		   not tail:match("^in main chunk") then
-			summary = tail
-		end
-	end
-
-	summary = summary or tr("unknown_error")
+	-- The first nonempty line is the error; later lines are stack frames.
+	local summary = report:match("[^\r\n]+") or tr("unknown_error")
+	summary = summary:match("^%s*(.-)%s*$")
+	summary = summary:match("^.-:%d+:%s*(.*)$") or summary
+	if summary == "" then summary = tr("unknown_error") end
 	if #summary > 120 then
-		summary = summary:sub(1, 117) .. "..."
+		local lastByte = 117
+		-- Do not split a UTF-8 character in a localized message or file path.
+		while lastByte > 0 do
+			local nextByte = summary:byte(lastByte + 1)
+			if not nextByte or nextByte < 128 or nextByte >= 192 then break end
+			lastByte = lastByte - 1
+		end
+		summary = summary:sub(1, lastByte) .. "..."
 	end
 
 	local lines = { message, summary }
-
 	if reportWritten then
 		table.insert(lines, "")
 		table.insert(lines, tr("full_error_report"))
@@ -637,11 +688,14 @@ local function reportFailure(message, err)
 	else
 		table.insert(lines, "")
 		table.insert(lines, tr("error_report_failed"))
+		-- Preserve the full traceback in the console when a file is unavailable.
+		pcall(print, report)
 	end
 
-	app.alert{
+	return app.alert{
 		title=tr("clone_stamp"),
-		text=lines
+		text=lines,
+		buttons=buttons
 	}
 end
 
@@ -650,6 +704,9 @@ local function stampBrushDialog(prefs)
 	if not ready then disposeState(); app.alert(reason); return end
 	local isDrawing, isPanning, spaceHeld = false, false, false
 	local panButton, requestedAction = nil, nil
+	local callbackError = nil
+	local applyPressed = false
+	local applyButtonWidth, applyButtonHeight = 64, 20
 	local destinationLocked = false
 	local mouseX, mouseY = -1, -1
 	local lastWX, lastWY, strokeOffsetBefore = nil, nil, nil
@@ -716,9 +773,11 @@ local function stampBrushDialog(prefs)
 	end
 
 	local function pushUndo()
-		undoPos = undoPos+1
-		for i = undoPos, #undoStack do undoStack[i] = nil end
-		undoStack[undoPos] = Image(workImg)
+		-- Allocate first: a failed copy must not advance or truncate history.
+		local nextImage = Image(workImg)
+		local nextPos = undoPos+1
+		for i = nextPos, #undoStack do undoStack[i] = nil end
+		undoStack[nextPos], undoPos = nextImage, nextPos
 	end
 
 	local function cancelStroke()
@@ -775,6 +834,43 @@ local function stampBrushDialog(prefs)
 		dlg:modify{ id="canvas", mousecursor=cursor }
 	end
 
+	local function syncSpaceKey(ev)
+		-- Mouse events reflect the current key state even if focus changed and
+		-- this canvas never received the corresponding Space key-up/down.
+		if type(ev.spaceKey) == "boolean" and spaceHeld ~= ev.spaceKey then
+			spaceHeld = ev.spaceKey
+			updateCanvasCursor()
+		end
+	end
+
+	local function guardCallback(callback)
+		return function(ev)
+			if exiting or callbackError then return end
+			-- Aseprite catches callback errors itself, so the outer command's
+			-- xpcall cannot see them. Defer recovery until the dialog is closed.
+			local ok, err = xpcall(callback, errorTraceback, ev)
+			if not ok then
+				callbackError = err
+				if dlg then dlg:close() end
+			end
+		end
+	end
+
+	local function guardedWidget(options)
+		for _, name in ipairs{
+			"onchange", "onpaint", "onwheel", "onmousedown", "onmousemove",
+			"onmouseup", "onkeydown", "onkeyup"
+		} do
+			if options[name] then options[name] = guardCallback(options[name]) end
+		end
+		return options
+	end
+
+	local function insideApplyButton(ev)
+		return ev.x >= 0 and ev.y >= 0 and
+		       ev.x < applyButtonWidth and ev.y < applyButtonHeight
+	end
+
 	dlg = Dialog{ title=tr("clone_stamp"), notitlebar=false, resizeable=true }
 	if not dlg then disposeState(); return end
 	dlg
@@ -783,7 +879,7 @@ local function stampBrushDialog(prefs)
 		:label{ text=tr("radius") }
 		:label{ text=tr("opacity") }
 		:label{ text=tr("softness") }
-		:slider{ id="tiled", min=0, max=3, value=tiledMode,
+		:slider(guardedWidget{ id="tiled", min=0, max=3, value=tiledMode,
 			onchange=function()
 				finishStroke()
 				local oldX, oldY = isTiledX() and 1 or 0, isTiledY() and 1 or 0
@@ -792,30 +888,30 @@ local function stampBrushDialog(prefs)
 				vOffX = vOffX+(oldX-newX)*workImg.width*vScale
 				vOffY = vOffY+(oldY-newY)*workImg.height*vScale
 				refreshPreview()
-			end }
-		:slider{ id="radius", min=1, max=64, value=radius,
+			end })
+		:slider(guardedWidget{ id="radius", min=1, max=64, value=radius,
 			onchange=function()
 				finishStroke()
-				radius = boundedNumber(dlg.data.radius, 16, 1, 64, true)
+				radius = boundedNumber(dlg.data.radius, 14, 1, 64, true)
 				savePrefs(prefs)
 				refreshPreview()
-			end }
-		:slider{ id="opacity", min=0, max=100, value=math.floor(opacity*100+0.5),
+			end })
+		:slider(guardedWidget{ id="opacity", min=0, max=100, value=math.floor(opacity*100+0.5),
 			onchange=function()
 				finishStroke()
 				opacity = boundedNumber(dlg.data.opacity, 100, 0, 100, true)/100
 				savePrefs(prefs)
 				refreshPreview()
-			end }
-		:slider{ id="softness", min=0, max=100, value=math.floor(softness*100+0.5),
+			end })
+		:slider(guardedWidget{ id="softness", min=0, max=100, value=math.floor(softness*100+0.5),
 			onchange=function()
 				finishStroke()
-				softness = boundedNumber(dlg.data.softness, 50, 0, 100, true)/100
+				softness = boundedNumber(dlg.data.softness, 67, 0, 100, true)/100
 				savePrefs(prefs)
 				refreshPreview()
-			end }
+			end })
 		:newrow{ always=false }
-		:canvas{ id="canvas", autoscaling=false, focus=true,
+		:canvas(guardedWidget{ id="canvas", autoscaling=false, focus=true,
 			onpaint=function(ev)
 				if not workImg then return end
 				local gc = ev.context
@@ -934,6 +1030,9 @@ local function stampBrushDialog(prefs)
 				end
 			end,
 			onwheel=function(ev)
+				-- Horizontal-only/zero wheel events must not zoom out or shrink
+				-- the brush, and must not prematurely finish a stroke.
+				if ev.deltaY == 0 then return end
 				finishStroke()
 
 				if ev.ctrlKey then
@@ -965,6 +1064,7 @@ local function stampBrushDialog(prefs)
 				refreshPreview()
 			end,
 			onmousedown=function(ev)
+				syncSpaceKey(ev)
 				mouseX, mouseY = ev.x, ev.y
 				if ev.button == MouseButton.MIDDLE or
 				   (ev.button == MouseButton.LEFT and spaceHeld) then
@@ -1015,6 +1115,7 @@ local function stampBrushDialog(prefs)
 				dlg:repaint()
 			end,
 			onmousemove=function(ev)
+				syncSpaceKey(ev)
 				mouseX, mouseY = ev.x, ev.y
 				if isPanning then
 					vOffX, vOffY = panOX+ev.x-panSX, panOY+ev.y-panSY
@@ -1030,6 +1131,7 @@ local function stampBrushDialog(prefs)
 				dlg:repaint()
 			end,
 			onmouseup=function(ev)
+				syncSpaceKey(ev)
 				mouseX, mouseY = ev.x, ev.y
 				if isPanning and ev.button == panButton then
 					isPanning = false
@@ -1071,9 +1173,9 @@ local function stampBrushDialog(prefs)
 					spaceHeld = false
 					updateCanvasCursor()
 				end
-			end }
+			end })
 		:newrow()
-		:canvas{ id="applyButton",
+		:canvas(guardedWidget{ id="applyButton",
 			width=64,
 			height=20,
 			autoscaling=true,
@@ -1081,6 +1183,7 @@ local function stampBrushDialog(prefs)
 			vexpand=false,
 			onpaint=function(ev)
 				local gc = ev.context
+				applyButtonWidth, applyButtonHeight = gc.width, gc.height
 				local bounds = Rectangle(0, 0, gc.width, gc.height)
 				gc:drawThemeRect("button_normal", bounds)
 				gc.color = app.theme.color.button_normal_text
@@ -1091,24 +1194,45 @@ local function stampBrushDialog(prefs)
 			end,
 			onmousedown=function(ev)
 				if ev.button ~= MouseButton.LEFT then return end
+				-- Arm on press, activate on release, like a normal button.
+				applyPressed = insideApplyButton(ev)
+			end,
+			onmouseup=function(ev)
+				if ev.button ~= MouseButton.LEFT then return end
+				local activate = applyPressed and insideApplyButton(ev)
+				applyPressed = false
+				if not activate then return end
 				finishStroke()
 				requestedAction = "apply"
 				dlg:close()
 			end
-		}
+		})
 
 	-- Reopen the same dialog iteratively. Recursive onclose/show calls retain
 	-- old canvases and can strand the session when the confirmation is closed.
 	local function tryApply()
-		local ok, err = xpcall(function()
+		local ok, validationError = xpcall(function()
+			local x1, y1, x2, y2 = getWorkDirtyBounds()
+			if x1 > x2 or y1 > y2 then return nil end
+
+			-- Expected rejection is a return value, never a transaction error.
+			local problem = validateSession()
+			if problem then return problem end
 			app.transaction(tr("clone_stamp"), applyToCel)
 		end, errorTraceback)
-		if ok then
-			app.refresh()
-			return true
+		if not ok then
+			reportFailure(tr("changes_not_applied"), validationError)
+			return false
 		end
-		reportFailure(tr("changes_not_applied"), err)
-		return false
+		if validationError then
+			app.alert{
+				title=tr("clone_stamp"),
+				text=validationError
+			}
+			return false
+		end
+		app.refresh()
+		return true
 	end
 
 	local function initialDialogBounds()
@@ -1146,6 +1270,9 @@ local function stampBrushDialog(prefs)
 	local bounds = initialDialogBounds()
 
 	while not exiting do
+		-- Reset transient input, not the source, destination, view, or history.
+		applyPressed = false
+		updateCanvasCursor()
 		dlg:show{ wait=true, bounds=bounds }
 		if exiting then break end
 
@@ -1155,13 +1282,27 @@ local function stampBrushDialog(prefs)
 		else
 			bounds = initialDialogBounds()
 		end
-		finishStroke()
+		if not callbackError then
+			local ok, err = xpcall(finishStroke, errorTraceback)
+			if not ok then callbackError = err end
+		end
 		isPanning, panButton, spaceHeld = false, nil, false
 
 		local action = requestedAction
 		requestedAction = nil
 
-		if action == "apply" then
+		if callbackError then
+			-- Discard only a possibly incomplete operation, retaining the most
+			-- recent completed undo snapshot. Never apply partially failed work.
+			local err = callbackError
+			cancelStroke()
+			workImg = Image(undoStack[undoPos])
+			snapshot = Image(workImg)
+			callbackError = nil
+			local choice = reportFailure(tr("changes_not_applied"), err,
+				{ tr("continue_editing"), tr("discard") })
+			if choice ~= 1 then break end
+		elseif action == "apply" then
 			if tryApply() then break end
 		else
 			local x1, y1, x2, y2 = getWorkDirtyBounds()
@@ -1194,8 +1335,8 @@ function init(plugin)
 	exiting = false
 	loadLocale(plugin)
 	local prefs = plugin.preferences
-	if prefs.radius == nil then prefs.radius = 16 end
-	if prefs.softness == nil then prefs.softness = 0.5 end
+	if prefs.radius == nil then prefs.radius = 14 end
+	if prefs.softness == nil then prefs.softness = 0.67 end
 	if prefs.spacing == nil then prefs.spacing = 0.25 end
 	if prefs.opacity == nil then prefs.opacity = 1.0 end
 	plugin:newCommand{ id="StampBrush_Clone", title=tr("clone_stamp"), group="edit_fill",
@@ -1221,7 +1362,7 @@ end
 
 function exit(plugin)
 	exiting = true
-	savePrefs(plugin.preferences)
+	-- Control changes already save preferences; an unused session must not overwrite them.
 	if dlg then pcall(function() dlg:close() end) end
 	dlg = nil
 	disposeState()
