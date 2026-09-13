@@ -155,18 +155,34 @@ local function applyToCel()
 	local offX = -needLeft
 	local offY = -needTop
 
+	-- Replace pixels from workImg exactly instead of alpha-compositing them.
+	local function copyWorkPixels(dstImg, dstCelX, dstCelY)
+		for y = 0, dstImg.height - 1 do
+			local wy = dstCelY + y
+			if wy >= 0 and wy < workImg.height then
+				for x = 0, dstImg.width - 1 do
+					local wx = dstCelX + x
+					if wx >= 0 and wx < workImg.width then
+						dstImg:drawPixel(x, y, workImg:getPixel(wx, wy))
+					end
+				end
+			end
+		end
+	end
+
 	if newW ~= activeCel.image.width or newH ~= activeCel.image.height then
-		-- Expand cel.image (new Image, drawImage old, drawImage dirty)
 		local newCelImg = Image(newW, newH, celColorMode)
 		newCelImg:clear()
 		newCelImg:drawImage(activeCel.image, Point(offX, offY))
-		-- Copy dirty region from workImg into cel (drawImage handles color conversion)
-		newCelImg:drawImage(workImg, Point(offX - celX, offY - celY))
+
+		local newCelX = celX - offX
+		local newCelY = celY - offY
+		copyWorkPixels(newCelImg, newCelX, newCelY)
+
 		activeCel.image = newCelImg
-		activeCel.position = Point(celX - offX, celY - offY)
+		activeCel.position = Point(newCelX, newCelY)
 	else
-		-- No expansion: drawImage copies the intersection
-		activeCel.image:drawImage(workImg, Point(-celX, -celY))
+		copyWorkPixels(activeCel.image, celX, celY)
 	end
 end
 
