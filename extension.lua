@@ -434,6 +434,31 @@ local function stampBrushDialog(prefs)
 					local v = app.pixelColor.grayaV(spx)
 					local a = math.floor(app.pixelColor.grayaA(spx) * mv / 255)
 					stampPreview:drawPixel(dx + r, dy + r, app.pixelColor.rgba(v, v, v, a))
+				elseif mode == ColorMode.INDEXED then
+					local sprite = app.activeSprite
+					local palette = sprite and sprite.palettes[1]
+					local transparent = sprite and sprite.transparentColor or 0
+
+					local tx = (wx + dx) % workImg.width
+					local ty = (wy + dy) % workImg.height
+					local dstPx = workImg:getPixel(tx, ty)
+
+					-- Keep transparent indexed preview unchanged for now.
+					if palette and spx ~= transparent and dstPx ~= transparent then
+						local srcColor = palette:getColor(spx)
+						local dstColor = palette:getColor(dstPx)
+						local blend = mv / 255.0
+
+						local mixed = Color{
+							red = math.floor(srcColor.red*blend + dstColor.red*(1-blend) + 0.5),
+							green = math.floor(srcColor.green*blend + dstColor.green*(1-blend) + 0.5),
+							blue = math.floor(srcColor.blue*blend + dstColor.blue*(1-blend) + 0.5)
+						}
+
+						local resultColor = palette:getColor(mixed.index)
+						stampPreview:drawPixel(dx + r, dy + r, app.pixelColor.rgba(
+							resultColor.red, resultColor.green, resultColor.blue, 255))
+					end
 				else
 					local a = math.floor(200 * mv / 255)
 					stampPreview:drawPixel(dx + r, dy + r, app.pixelColor.rgba(255, 255, 255, a))
