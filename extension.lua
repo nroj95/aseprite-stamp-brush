@@ -7,6 +7,114 @@
 local TILED_NONE, TILED_X, TILED_Y, TILED_BOTH = 0, 1, 2, 3
 
 -- =========================================================================
+-- Localization
+-- English is built in so the extension remains usable even if a locale file
+-- is missing. Additional locales override only the keys they translate.
+-- =========================================================================
+
+local uiText = {
+clone_stamp = "Clone Stamp",
+
+tiled_mode = "Tiled Mode",
+radius = "Radius",
+opacity = "Opacity",
+softness = "Softness",
+
+apply = "Apply",
+apply_changes = "Apply changes?",
+discard = "Discard",
+continue_editing = "Continue Editing",
+
+stroke_made_one = "1 stroke made.",
+strokes_made_other = "%d strokes made.",
+
+raster_layer_required =
+"Clone Stamp requires a raster image layer, not a tilemap or reference layer.",
+layer_locked =
+"The layer or one of its groups is locked.",
+no_active_cel =
+"No active cel!",
+unsupported_color_mode =
+"Unsupported image color mode.",
+no_usable_palette =
+"The active frame has no usable palette.",
+
+active_sprite_changed =
+"The active sprite changed while Clone Stamp was open. Changes were not applied.",
+original_cel_missing =
+"The original cel no longer exists.",
+original_cel_changed =
+"The original cel or canvas changed while Clone Stamp was open. Changes were not applied.",
+
+unknown_error = "Unknown error",
+full_error_report = "Full error report written to:",
+error_report_failed = "Could not write the full error report.",
+changes_not_applied =
+"Changes were not applied. Your session is still available.",
+clone_stamp_failed =
+"Clone Stamp failed.",
+}
+
+local function tr(key)
+return uiText[key] or key
+end
+
+local function strokeSummary(count)
+if count == 1 then
+return tr("stroke_made_one")
+end
+return string.format(tr("strokes_made_other"), count)
+end
+
+local function normalizeLocale(value)
+if type(value) ~= "string" then return "en" end
+
+value = value:lower():gsub("_", "-")
+
+if value:match("^nn") then
+	return "nn"
+end
+
+return "en"
+end
+
+local function detectLocale()
+local ok, value = pcall(function()
+return app.preferences.general.language
+end)
+
+if ok then
+return normalizeLocale(value)
+end
+
+return "en"
+end
+
+local function loadLocale(plugin)
+local locale = detectLocale()
+if locale == "en" then return end
+
+local separator = package.config:sub(1, 1)
+local localePath =
+plugin.path .. separator ..
+"locale" .. separator ..
+locale .. ".lua"
+
+local ok, translations = pcall(dofile, localePath)
+
+if not ok or type(translations) ~= "table" then
+return
+end
+
+for key, value in pairs(translations) do
+if type(key) == "string" and type(value) == "string" then
+uiText[key] = value
+end
+end
+end
+
+
+-- =========================================================================
 -- Session state (no document pixels are modified before Apply)
 -- =========================================================================
 local dlg = nil
@@ -54,11 +162,11 @@ end
 
 local function layerProblem(layer, sprite)
 	if not layer or not layer.isImage or layer.isTilemap or layer.isReference then
-		return "Clone Stamp requires a raster image layer, not a tilemap or reference layer."
+		return tr("raster_layer_required")
 	end
 	local current = layer
 	while current do
-		if not current.isEditable then return "The layer or one of its groups is locked." end
+		if not current.isEditable then return tr("layer_locked") end
 		local parent = current.parent
 		if not parent or parent == sprite then break end
 		current = parent
@@ -109,12 +217,12 @@ end
 local function initState(prefs)
 	disposeState()
 	local sprite, activeCel = app.activeSprite, app.activeCel
-	if not sprite or not activeCel then return false, "No active cel!" end
+	if not sprite or not activeCel then return false, tr("no_active_cel") end
 	local problem = layerProblem(activeCel.layer, sprite)
 	if problem then return false, problem end
 	local mode = activeCel.image.colorMode
 	if mode ~= ColorMode.RGB and mode ~= ColorMode.GRAYSCALE and mode ~= ColorMode.INDEXED then
-		return false, "Unsupported image color mode."
+		return false, tr("unsupported_color_mode")
 	end
 
 	sessionSprite, sessionLayer, sessionFrame = sprite, activeCel.layer, activeCel.frameNumber
@@ -125,7 +233,7 @@ local function initState(prefs)
 	originalCel = Image(activeCel.image)
 	originalImageId, originalImageVersion = activeCel.image.id, activeCel.image.version
 	if mode == ColorMode.INDEXED and not capturePalette(sprite, sessionFrame) then
-		return false, "The active frame has no usable palette."
+		return false, tr("no_usable_palette")
 	end
 
 	radius = boundedNumber(prefs.radius, 16, 1, 64, true)
@@ -282,16 +390,16 @@ end
 
 local function applyToCel()
 	if not app.activeSprite or app.activeSprite.id ~= sessionSprite.id then
-		error("The active sprite changed while Clone Stamp was open. Changes were not applied.")
+		error(tr("active_sprite_changed"))
 	end
 	local activeCel = sessionLayer:cel(sessionFrame)
-	if not activeCel then error("The original cel no longer exists.") end
+	if not activeCel then error(tr("original_cel_missing")) end
 	local problem = layerProblem(sessionLayer, sessionSprite)
 	if problem then error(problem) end
 	if sessionSprite.width ~= workImg.width or sessionSprite.height ~= workImg.height or
 	   activeCel.position.x ~= celX or activeCel.position.y ~= celY or
 	   activeCel.image.id ~= originalImageId or activeCel.image.version ~= originalImageVersion then
-		error("The original cel or canvas changed while Clone Stamp was open. Changes were not applied.")
+		error(tr("original_cel_changed"))
 	end
 	local x1, y1, x2, y2 = getWorkDirtyBounds()
 	if x1 > x2 or y1 > y2 then return end
@@ -494,7 +602,7 @@ local function reportFailure(message, err)
 		end
 	end
 
-	summary = summary or "Unknown error"
+	summary = summary or tr("unknown_error")
 	if #summary > 120 then
 		summary = summary:sub(1, 117) .. "..."
 	end
@@ -503,15 +611,15 @@ local function reportFailure(message, err)
 
 	if reportWritten then
 		table.insert(lines, "")
-		table.insert(lines, "Full error report written to:")
+		table.insert(lines, tr("full_error_report"))
 		table.insert(lines, errorPath)
 	else
 		table.insert(lines, "")
-		table.insert(lines, "Could not write the full error report.")
+		table.insert(lines, tr("error_report_failed"))
 	end
 
 	app.alert{
-		title="Clone Stamp",
+		title=tr("clone_stamp"),
 		text=lines
 	}
 end
@@ -645,14 +753,14 @@ local function stampBrushDialog(prefs)
 		dlg:modify{ id="canvas", mousecursor=cursor }
 	end
 
-	dlg = Dialog{ title="Clone Stamp", notitlebar=false, resizeable=true }
+	dlg = Dialog{ title=tr("clone_stamp"), notitlebar=false, resizeable=true }
 	if not dlg then disposeState(); return end
 	dlg
 		:newrow{ always=false }
-		:label{ text="Tiled Mode" }
-		:label{ text="Radius" }
-		:label{ text="Opacity" }
-		:label{ text="Softness" }
+		:label{ text=tr("tiled_mode") }
+		:label{ text=tr("radius") }
+		:label{ text=tr("opacity") }
+		:label{ text=tr("softness") }
 		:slider{ id="tiled", min=0, max=3, value=tiledMode,
 			onchange=function()
 				finishStroke()
@@ -948,8 +1056,8 @@ local function stampBrushDialog(prefs)
 				local bounds = Rectangle(0, 0, gc.width, gc.height)
 				gc:drawThemeRect("button_normal", bounds)
 				gc.color = app.theme.color.button_normal_text
-				local size = gc:measureText("Apply")
-				gc:fillText("Apply",
+				local size = gc:measureText(tr("apply"))
+				gc:fillText(tr("apply"),
 					math.floor((gc.width-size.width)/2),
 					math.floor((gc.height-size.height)/2))
 			end,
@@ -965,13 +1073,13 @@ local function stampBrushDialog(prefs)
 	-- old canvases and can strand the session when the confirmation is closed.
 	local function tryApply()
 		local ok, err = xpcall(function()
-			app.transaction("Clone Stamp", applyToCel)
+			app.transaction(tr("clone_stamp"), applyToCel)
 		end, errorTraceback)
 		if ok then
 			app.refresh()
 			return true
 		end
-		reportFailure("Changes were not applied. Your session is still available.", err)
+		reportFailure(tr("changes_not_applied"), err)
 		return false
 	end
 
@@ -1032,9 +1140,9 @@ local function stampBrushDialog(prefs)
 			if x1 > x2 or y1 > y2 then break end
 
 			local choice = app.alert{
-				title="Apply changes?",
-				text=tostring(undoPos).." stroke(s) made.",
-				buttons={ "Apply", "Discard", "Continue Editing" }
+				title=tr("apply_changes"),
+				text=strokeSummary(undoPos),
+				buttons={ tr("apply"), tr("discard"), tr("continue_editing") }
 			}
 
 			if choice == 1 then
@@ -1056,12 +1164,13 @@ end
 -- =========================================================================
 function init(plugin)
 	exiting = false
+	loadLocale(plugin)
 	local prefs = plugin.preferences
 	if prefs.radius == nil then prefs.radius = 16 end
 	if prefs.softness == nil then prefs.softness = 0.5 end
 	if prefs.spacing == nil then prefs.spacing = 0.25 end
 	if prefs.opacity == nil then prefs.opacity = 1.0 end
-	plugin:newCommand{ id="StampBrush_Clone", title="Clone Stamp", group="edit_fill",
+	plugin:newCommand{ id="StampBrush_Clone", title=tr("clone_stamp"), group="edit_fill",
 		onclick=function()
 			if sessionBusy then return end
 			sessionBusy = true
@@ -1074,7 +1183,7 @@ function init(plugin)
 				if dlg then pcall(function() dlg:close() end) end
 				dlg = nil
 				disposeState()
-				reportFailure("Clone Stamp failed.", err)
+				reportFailure(tr("clone_stamp_failed"), err)
 			end
 		end,
 		onenabled=function()
