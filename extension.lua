@@ -132,23 +132,45 @@ local function savePrefs(prefs)
 end
 
 -- =========================================================================
--- Apply helper: merge dirty region from workImg into cel
+-- Apply helper: write current session changes from workImg into cel
 -- =========================================================================
+local function getWorkDirtyBounds()
+	local original = undoStack and undoStack[0]
+	if not original then return 0, 0, -1, -1 end
+
+	local x1, y1 = workImg.width, workImg.height
+	local x2, y2 = -1, -1
+
+	for y = 0, workImg.height - 1 do
+		for x = 0, workImg.width - 1 do
+			if workImg:getPixel(x, y) ~= original:getPixel(x, y) then
+				if x < x1 then x1 = x end
+				if y < y1 then y1 = y end
+				if x > x2 then x2 = x end
+				if y > y2 then y2 = y end
+			end
+		end
+	end
+
+	return x1, y1, x2, y2
+end
+
 local function applyToCel()
 	local activeCel = app.activeCel
 	if not activeCel then return end
 
-	-- No dirty/overlap with cel -- nothing to apply
-	if dirtyX1 > dirtyX2 or dirtyY1 > dirtyY2 then return end
+	-- No session changes -- nothing to apply
+	local applyX1, applyY1, applyX2, applyY2 = getWorkDirtyBounds()
+	if applyX1 > applyX2 or applyY1 > applyY2 then return end
 	local cw, ch = snapshot.width, snapshot.height
-	if dirtyX2 < celX or dirtyX1 > celX + cw or
-	   dirtyY2 < celY or dirtyY1 > celY + ch then return end
+	if applyX2 < celX or applyX1 > celX + cw or
+	   applyY2 < celY or applyY1 > celY + ch then return end
 
 	-- Check if cel needs to expand
-	local needLeft  = math.min(0, dirtyX1 - celX)
-	local needTop   = math.min(0, dirtyY1 - celY)
-	local needRight = math.max(activeCel.image.width  - 1, dirtyX2 - celX)
-	local needBot   = math.max(activeCel.image.height - 1, dirtyY2 - celY)
+	local needLeft  = math.min(0, applyX1 - celX)
+	local needTop   = math.min(0, applyY1 - celY)
+	local needRight = math.max(activeCel.image.width  - 1, applyX2 - celX)
+	local needBot   = math.max(activeCel.image.height - 1, applyY2 - celY)
 
 	local newW = needRight - needLeft + 1
 	local newH = needBot - needTop + 1
