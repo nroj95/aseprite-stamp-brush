@@ -235,9 +235,9 @@ local function isTiledX() return tiledMode == TILED_X or tiledMode == TILED_BOTH
 local function isTiledY() return tiledMode == TILED_Y or tiledMode == TILED_BOTH end
 
 local function sampleSource(tx, ty, offX, offY)
-	-- source coordinates in cel-local space, with tiledMode wrapping
-	local sx = tx - offX - celX
-	local sy = ty - offY - celY
+	-- source coordinates in work-image space, with tiledMode wrapping
+	local sx = tx - offX
+	local sy = ty - offY
 	if isTiledX() then sx = sx % snapshot.width
 	elseif sx < 0 or sx >= snapshot.width then return 0 end
 	if isTiledY() then sy = sy % snapshot.height
