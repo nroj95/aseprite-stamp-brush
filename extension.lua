@@ -261,7 +261,15 @@ local function flushAccumTo(dstImg)
 				dstImg:drawPixel(x, y, app.pixelColor.rgba(
 					math.floor(sr*a + dr*(1-a) + 0.5), math.floor(sg*a + dg*(1-a) + 0.5),
 					math.floor(sb*a + db*(1-a) + 0.5), math.floor(sa*a + da*(1-a) + 0.5)))
-			else if a > 0.5 then dstImg:drawPixel(x, y, srcPx) end end
+			elseif mode == ColorMode.GRAYSCALE then
+				local sv, sa = app.pixelColor.grayaV(srcPx), app.pixelColor.grayaA(srcPx)
+				local dv, da = app.pixelColor.grayaV(dstPx), app.pixelColor.grayaA(dstPx)
+				dstImg:drawPixel(x, y, app.pixelColor.graya(
+					math.floor(sv*a + dv*(1-a) + 0.5),
+					math.floor(sa*a + da*(1-a) + 0.5)))
+			else
+				if a > 0.5 then dstImg:drawPixel(x, y, srcPx) end
+			end
 		end ::fcont::
 	end end
 end
