@@ -390,17 +390,21 @@ local function stampBrushDialog(prefs)
 		ensureBrushMask()
 		local r = radius
 		stampPreview = Image(r*2+1, r*2+1, ColorMode.RGB)
-		local isRgb = (workImg.colorMode == ColorMode.RGB)
+		local mode = workImg.colorMode
 		for dy = -r, r do for dx = -r, r do
 			local mv = brushMask:getPixel(dx + r, dy + r)
 			if mv == 0 then goto pskip end
 			local spx = sampleSource(wx + dx, wy + dy, offX, offY)
 			if spx ~= 0 then
-				if isRgb then
+				if mode == ColorMode.RGB then
 					local a = math.floor(app.pixelColor.rgbaA(spx) * mv / 255)
 					stampPreview:drawPixel(dx + r, dy + r, app.pixelColor.rgba(
 						app.pixelColor.rgbaR(spx), app.pixelColor.rgbaG(spx),
 						app.pixelColor.rgbaB(spx), a))
+				elseif mode == ColorMode.GRAYSCALE then
+					local v = app.pixelColor.grayaV(spx)
+					local a = math.floor(app.pixelColor.grayaA(spx) * mv / 255)
+					stampPreview:drawPixel(dx + r, dy + r, app.pixelColor.rgba(v, v, v, a))
 				else
 					local a = math.floor(200 * mv / 255)
 					stampPreview:drawPixel(dx + r, dy + r, app.pixelColor.rgba(255, 255, 255, a))
