@@ -4,7 +4,7 @@
 -- Apply replaces a detached image in one native undoable transaction.
 -- API: Aseprite >= 1.3 (Dialog:canvas support required).
 
-local TILED_X, TILED_Y, TILED_BOTH = 1, 2, 3
+local TILED_NONE, TILED_X, TILED_Y, TILED_BOTH = 0, 1, 2, 3
 
 -- =========================================================================
 -- Session state (no document pixels are modified before Apply)
@@ -14,7 +14,7 @@ local sessionBusy, exiting = false, false
 local radius, softness, opacity, spacing = 16, 0.5, 1.0, 0.25
 local workImg, sourcePoint, offset, snapshot = nil, nil, nil, nil
 local undoStack, undoPos = nil, 0
-local tiledMode = TILED_BOTH
+local tiledMode = TILED_NONE
 local celX, celY, celColorMode = 0, 0, nil
 local sessionSprite, sessionLayer, sessionFrame = nil, nil, nil
 local originalCel, originalImageId, originalImageVersion = nil, nil, nil
@@ -131,7 +131,7 @@ local function initState(prefs)
 	radius = boundedNumber(prefs.radius, 16, 1, 64, true)
 	softness = boundedNumber(prefs.softness, 0.5, 0, 1)
 	opacity = boundedNumber(prefs.opacity, 1, 0, 1)
-	spacing, tiledMode = 0.25, TILED_BOTH
+	spacing, tiledMode = 0.25, TILED_NONE
 	workImg = newSessionImage(sprite.width, sprite.height)
 	copyPixels(originalCel, workImg, celX, celY)
 	snapshot = Image(workImg)
@@ -495,7 +495,8 @@ end
 local function stampBrushDialog(prefs)
 	local ready, reason = initState(prefs)
 	if not ready then disposeState(); app.alert(reason); return end
-	local isDrawing, isPanning = false, false
+	local isDrawing, isPanning, spaceHeld = false, false, false
+	local panButton, requestedAction = nil, nil
 	local mouseX, mouseY = -1, -1
 	local lastWX, lastWY, strokeOffsetBefore = nil, nil, nil
 	local previewImg, previewDisplay, baseDisplay, stampPreview = nil, nil, nil, nil
@@ -605,6 +606,19 @@ local function stampBrushDialog(prefs)
 	local function refreshPreview()
 		hoverDirty = true
 		if dlg then dlg:repaint() end
+	end
+
+	local function updateCanvasCursor()
+		if not dlg then return end
+		local cursor = MouseCursor.ARROW
+		if isPanning then
+			cursor = MouseCursor.GRABBING
+		elseif spaceHeld then
+			cursor = MouseCursor.GRAB
+		elseif sourcePoint then
+			cursor = MouseCursor.NONE
+		end
+		dlg:modify{ id="canvas", mousecursor=cursor }
 	end
 
 	dlg = Dialog{ title="Clone Stamp", notitlebar=false, resizeable=true }
@@ -779,9 +793,13 @@ local function stampBrushDialog(prefs)
 			end,
 			onmousedown=function(ev)
 				mouseX, mouseY = ev.x, ev.y
-				if ev.button == MouseButton.MIDDLE then
+				if ev.button == MouseButton.MIDDLE or
+				   (ev.button == MouseButton.LEFT and spaceHeld) then
 					if isDrawing then return end
-					isPanning, panSX, panSY, panOX, panOY = true, ev.x, ev.y, vOffX, vOffY
+					isPanning = true
+					panButton = ev.button
+					panSX, panSY, panOX, panOY = ev.x, ev.y, vOffX, vOffY
+					updateCanvasCursor()
 					return
 				end
 				if isPanning then return end
@@ -792,6 +810,7 @@ local function stampBrushDialog(prefs)
 					if x == nil then return end
 					sourcePoint, offset = Point(x, y), nil
 					snapshot = Image(workImg)
+					updateCanvasCursor()
 					refreshPreview()
 					return
 				end
@@ -801,6 +820,7 @@ local function stampBrushDialog(prefs)
 					if x == nil then return end
 					sourcePoint, offset = Point(x, y), nil
 					snapshot = Image(workImg)
+					updateCanvasCursor()
 					refreshPreview()
 					return
 				end
@@ -835,8 +855,10 @@ local function stampBrushDialog(prefs)
 			end,
 			onmouseup=function(ev)
 				mouseX, mouseY = ev.x, ev.y
-				if ev.button == MouseButton.MIDDLE then
+				if isPanning and ev.button == panButton then
 					isPanning = false
+					panButton = nil
+					updateCanvasCursor()
 					refreshPreview()
 					return
 				end
@@ -847,8 +869,17 @@ local function stampBrushDialog(prefs)
 				dlg:repaint()
 			end,
 			onkeydown=function(ev)
+				if ev.code == "Space" then
+					ev:stopPropagation()
+					spaceHeld = true
+					updateCanvasCursor()
+					return
+				end
 				if ev.repeatCount > 0 then return end
-				if (ev.metaKey or ev.ctrlKey) and ev.code == "KeyZ" then
+				if ev.code == "KeyK" and not ev.ctrlKey and not ev.metaKey and not ev.altKey then
+					ev:stopPropagation()
+					dlg:close()
+				elseif (ev.metaKey or ev.ctrlKey) and ev.code == "KeyZ" then
 					ev:stopPropagation()
 					if ev.shiftKey then redo() else undo() end
 					dlg:repaint()
@@ -857,32 +888,85 @@ local function stampBrushDialog(prefs)
 					redo()
 					dlg:repaint()
 				end
+			end,
+			onkeyup=function(ev)
+				if ev.code == "Space" then
+					ev:stopPropagation()
+					spaceHeld = false
+					updateCanvasCursor()
+				end
 			end }
+		:newrow()
+		:canvas{ id="applyButton",
+			width=64,
+			height=20,
+			autoscaling=true,
+			hexpand=false,
+			vexpand=false,
+			onpaint=function(ev)
+				local gc = ev.context
+				local bounds = Rectangle(0, 0, gc.width, gc.height)
+				gc:drawThemeRect("button_normal", bounds)
+				gc.color = app.theme.color.button_normal_text
+				local size = gc:measureText("Apply")
+				gc:fillText("Apply",
+					math.floor((gc.width-size.width)/2),
+					math.floor((gc.height-size.height)/2))
+			end,
+			onmousedown=function(ev)
+				if ev.button ~= MouseButton.LEFT then return end
+				finishStroke()
+				requestedAction = "apply"
+				dlg:close()
+			end
+		}
 
 	-- Reopen the same dialog iteratively. Recursive onclose/show calls retain
 	-- old canvases and can strand the session when the confirmation is closed.
+	local function tryApply()
+		local ok, err = xpcall(function()
+			app.transaction("Clone Stamp", applyToCel)
+		end, errorTraceback)
+		if ok then
+			app.refresh()
+			return true
+		end
+		reportFailure("Changes were not applied. Your session is still available.", err)
+		return false
+	end
+
 	local bounds = Rectangle(0, 0, app.window.width, app.window.height)
 	while not exiting do
 		dlg:show{ wait=true, bounds=bounds }
 		if exiting then break end
 		bounds = dlg.bounds
 		finishStroke()
-		isPanning = false
-		local x1, y1, x2, y2 = getWorkDirtyBounds()
-		if x1 > x2 or y1 > y2 then break end
-		local choice = app.alert{ title="Apply changes?", text=tostring(undoPos).." stroke(s) made.",
-			buttons={ "Apply", "Discard", "Continue Editing" } }
-		if choice == 1 then
-			local ok, err = xpcall(function()
-				app.transaction("Clone Stamp", applyToCel)
-			end, errorTraceback)
-			if ok then app.refresh(); break end
-			reportFailure("Changes were not applied. Your session is still available.", err)
-		elseif choice == 2 then
-			break
+		isPanning, panButton, spaceHeld = false, nil, false
+
+		local action = requestedAction
+		requestedAction = nil
+
+		if action == "apply" then
+			if tryApply() then break end
+		else
+			local x1, y1, x2, y2 = getWorkDirtyBounds()
+			if x1 > x2 or y1 > y2 then break end
+
+			local choice = app.alert{
+				title="Apply changes?",
+				text=tostring(undoPos).." stroke(s) made.",
+				buttons={ "Apply", "Discard", "Continue Editing" }
+			}
+
+			if choice == 1 then
+				if tryApply() then break end
+			elseif choice == 2 then
+				break
+			end
 		end
-		-- Escape/close on the confirmation has the same non-destructive effect
-		-- as Continue Editing. Keep zoom, pan, source, and undo/redo intact.
+
+		-- Escape/X/K still uses the confirmation path above.
+		-- Continue Editing keeps zoom, pan, source, and undo/redo intact.
 	end
 	dlg = nil
 	disposeState()

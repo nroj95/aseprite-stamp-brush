@@ -9,12 +9,19 @@
   "publisher": "nklbdev",
   "license": "MIT",
   "categories": [
-    "Scripts"
+    "Scripts",
+    "Keys"
   ],
   "contributes": {
     "scripts": [
       {
         "path": "./extension.lua"
+      }
+    ],
+    "keys": [
+      {
+        "id": "stamp-brush-keys",
+        "path": "./stamp-brush.aseprite-keys"
       }
     ]
   },
