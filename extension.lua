@@ -587,20 +587,19 @@ local function markerPath(gc, x, y, r)
 	gc:lineTo(x, y+4)
 end
 
-local function drawMarker(gc, x, y, r, highContrast)
+local function drawMarker(gc, x, y, r, highContrast, innerColor)
 	if highContrast then
 		gc:save()
 		gc.blendMode = BlendMode.NORMAL
 
-		-- Dark outer stroke plus light inner stroke keeps the source
-		-- marker visible over both light and dark artwork.
+		-- Shared dark outer stroke keeps both markers visible over varied artwork.
 		gc.strokeWidth = 3
 		gc.color = Color{ red=32, green=32, blue=32, alpha=255 }
 		markerPath(gc, x, y, r)
 		gc:stroke()
 
 		gc.strokeWidth = 1
-		gc.color = Color{ red=200, green=200, blue=200, alpha=255 }
+		gc.color = innerColor or Color{ red=200, green=200, blue=200, alpha=255 }
 		markerPath(gc, x, y, r)
 		gc:stroke()
 
@@ -1065,7 +1064,8 @@ local function stampBrushDialog(prefs)
 							if not destinationLocked then
 							        drawGuideLine(gc, sxCanvas, syCanvas, dx, dy, wx == sx or wy == sy)
 							end
-							drawMarker(gc, dx, dy, radius*s, true)
+							drawMarker(gc, dx, dy, radius*s, true,
+								Color{ red=230, green=201, blue=106, alpha=255 })
 							drawMarker(gc, sxCanvas, syCanvas, radius*s, true)
 						end
 					end
