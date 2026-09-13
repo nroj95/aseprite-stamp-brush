@@ -383,11 +383,7 @@ local function stampBrushDialog(prefs)
 	local function updatePreview()
 		stampPreview = nil
 		if not alphaAcc then return end
-		if not previewImg or previewImg.width ~= workImg.width or previewImg.height ~= workImg.height then
-			previewImg = Image(workImg)
-		else
-			previewImg:drawImage(workImg, Point(0, 0))
-		end
+		previewImg = Image(workImg)
 		flushAccumTo(previewImg)
 	end
 
