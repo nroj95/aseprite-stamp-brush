@@ -263,6 +263,27 @@ local function flushAccumTo(dstImg)
 				dstImg:drawPixel(x, y, app.pixelColor.graya(
 					math.floor(sv*a + dv*(1-a) + 0.5),
 					math.floor(sa*a + da*(1-a) + 0.5)))
+			elseif mode == ColorMode.INDEXED then
+				local sprite = app.activeSprite
+				local palette = sprite and sprite.palettes[1]
+				local transparent = sprite and sprite.transparentColor or 0
+
+				-- Indexed transparency is binary, so preserve the existing threshold
+				-- when either side is the transparent palette index.
+				if not palette or srcPx == transparent or dstPx == transparent then
+					if a > 0.5 then dstImg:drawPixel(x, y, srcPx) end
+				else
+					local srcColor = palette:getColor(srcPx)
+					local dstColor = palette:getColor(dstPx)
+
+					local mixed = Color{
+						red = math.floor(srcColor.red*a + dstColor.red*(1-a) + 0.5),
+						green = math.floor(srcColor.green*a + dstColor.green*(1-a) + 0.5),
+						blue = math.floor(srcColor.blue*a + dstColor.blue*(1-a) + 0.5)
+					}
+
+					dstImg:drawPixel(x, y, mixed.index)
+				end
 			else
 				if a > 0.5 then dstImg:drawPixel(x, y, srcPx) end
 			end
