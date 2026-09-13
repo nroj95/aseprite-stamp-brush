@@ -1,6 +1,6 @@
 # Stamp Brush
 
-A clone-stamp brush extension for [Aseprite](https://www.aseprite.org/) — select a source area and paint with it like a stamp. With tiled canvas, smoothstep brush mask, max-alpha blending, pan/zoom, selection masking, and local undo/redo.
+A clone-stamp brush extension for [Aseprite](https://www.aseprite.org/) — select a source area and paint with it like a stamp. Includes tiled canvas support, soft brushes, pan/zoom, selection masking, local undo/redo, transparent cloning, and RGB, grayscale, and indexed-color support.
 
 <p align="center">
 <img src="https://img.shields.io/badge/Aseprite-1.3+-brightgreen" alt="Aseprite 1.3+">
@@ -20,78 +20,116 @@ https://github.com/user-attachments/assets/1e630c10-5291-4cc8-8258-739a48feb691
 
 ## 🎯 Features
 
-- **Clone-stamp brush** — paint by sampling color from any part of a cel or its tiled copies.
-- **Soft brush** — smoothstep brush mask with adjustable radius (1-64), softness, and opacity.
-- **Tiled canvas** — display 1×1, 3×1, 1×3, or 3×3 tiles with boundary lines. Tiling works as both a visual reference and a source-wrapping mode.
-- **Max-alpha accumulator** — no blending artifacts on overlapping strokes. Each stroke collects the maximum alpha per pixel and flushes once.
-- **Pan and zoom** — middle-click drag to pan, mouse wheel to zoom (powers of two: 0.5× to 32×). Pinch-to-zoom on trackpad is not supported.
-- **Selection masking** — the brush only paints inside the active selection. Selection outline is rendered with marching-ants-style alternating colors via `BlendMode.DIFFERENCE` for visibility on any background.
-- **Dynamic preview** — see what will be painted before you click, updated in real time.
-- **Stamp spacing** — stamps are interpolated along mouse movement with configurable spacing (25% of radius) for smooth strokes.
-- **Local undo/redo** — Ctrl+Z / Ctrl+Shift+Z with full stroke history. Redo history is cleared on new strokes. Keyboard shortcuts are handled by the canvas widget — they may not work if the canvas loses focus. Click the canvas to restore focus.
-- **Continue editing** — save your work, discard, or continue editing if you close the dialog accidentally.
-- **Auto-expanding cel** — when painting outside the cel bounds, the cel automatically grows to include new pixels. Works exactly like Aseprite's native `PatchCel` command.
-- **Source snapshot** — clone source is captured from the current cel state. Updated after each stroke and on undo/redo, so you can clone from your own modifications.
-- **Full-window dialog** — opens to fill the entire Aseprite window for maximum workspace.
-- **Auto-zoom** — initial zoom level is automatically calculated to fit the content in the available canvas area.
-- **Fixed canvas size** — `workImg` is the full sprite canvas. The cel is drawn onto it at its position. Painting happens in absolute canvas coordinates — no mid-stroke image expansion needed.
+- **Clone-stamp brush** — sample from any part of the sprite canvas and paint it elsewhere.
+- **Soft brush** — adjustable radius (1–64), softness, opacity, and smooth stamp interpolation.
+- **RGB, grayscale, and indexed color** — cloning and previews work across all three supported Aseprite image modes.
+- **Transparent cloning** — transparent source pixels can erase destination pixels correctly.
+- **Alpha-aware blending** — opacity behaves correctly with partially transparent and fully transparent source pixels.
+- **Tiled canvas** — display and work with no tiling, horizontal tiling, vertical tiling, or both axes.
+- **Correct edge behavior** — untiled painting clips at sprite boundaries; enabled tiled axes wrap correctly.
+- **Pan and zoom** — mouse wheel zoom, Space + left drag or middle drag to pan, plus horizontal and vertical wheel panning.
+- **Selection masking** — painting is restricted to the active selection when one exists.
+- **Dynamic preview** — preview shows the actual resulting pixels before painting, including grayscale, indexed color, and transparency.
+- **High-contrast source marker** — the source ring uses a dark outer stroke and light inner stroke so it remains visible over varied artwork.
+- **Local undo/redo** — undo and redo clone-stamp strokes before applying them to the document.
+- **No-op stroke detection** — strokes that do not change any pixels are not added to the local history.
+- **Safe Apply** — all session changes are committed in one native Aseprite transaction so the final Apply can be undone/redone normally in Aseprite.
+- **Auto-expanding cel** — painting outside the original cel bounds expands the resulting cel to contain the new pixels.
+- **Session validation** — Apply is rejected safely if the original sprite, cel, layer, canvas, or image changed underneath the session.
+- **Continue Editing** — closing after making changes offers Apply, Discard, or Continue Editing without losing the current clone-stamp session.
+- **Full-window workspace** — each new Clone Stamp session opens to the size of the Aseprite window.
+- **Nynorsk localization** — automatically loads `locale/nn.lua` when Aseprite is using the `nn` language. English remains the fallback.
 
 ## 💽 How to install
 
 1. Download the `.aseprite-extension` file from the [Releases](https://github.com/nklbdev/aseprite-stamp-brush/releases) page.
 2. Double-click the file, or install via _Edit > Preferences > Extensions > Add Extension_.
-3. The "Clone Stamp" command will appear in the _Edit_ menu.
-   You can assign a keyboard shortcut via _Edit > Keyboard Shortcuts_ — search for "Edit > Clone Stamp".
+3. Restart Aseprite if necessary.
+4. The **Clone Stamp** command appears in the _Edit_ menu and includes **K** as its default shortcut.
+
+The shortcut can be changed through _Edit > Keyboard Shortcuts_.
+
+If Aseprite is using Nynorsk (`nn`), the bundled Nynorsk translation is loaded automatically. Other languages currently fall back to English.
 
 Alternatively, clone this repository and copy the folder to your Aseprite extensions directory:
+
 - **macOS**: `~/Library/Application Support/Aseprite/extensions/`
 - **Windows**: `%AppData%/Aseprite/extensions/`
 - **Linux**: `~/.config/aseprite/extensions/`
 
 ## 👷 How to use
 
-1. Open an image in Aseprite and select the cel you want to modify (if it is not selected yet).
-2. _(Optional)_ Make a selection if you want to paint only within specific bounds.
-3. Run _Edit > Clone Stamp_.
-4. **Left-click** or **Right-click** on the area you want to clone FROM (sets the source point).
+1. Open an image in Aseprite and select the cel you want to modify.
+2. _(Optional)_ Make a selection if you only want to paint inside a specific area.
+3. Press **K**, or run _Edit > Clone Stamp_.
+4. **Left-click** when no source exists yet, or **Right-click** at any time, to choose the source point.
 5. **Left-click and drag** to paint with the clone stamp.
-6. **Right-click** to set a new source point (captures the current canvas state, including your previous strokes).
-7. Use sliders to adjust **Tiled Mode**, **Radius**, **Opacity**, and **Softness**.
-8. Close the dialog — choose **Apply** to commit changes, **Discard** to cancel, or **Continue Editing** to keep working.
+6. **Right-click** again whenever you want to choose a new source point.
+7. Adjust **Tiled Mode**, **Radius**, **Opacity**, and **Softness** as needed.
+8. Click **Apply** to commit immediately, or close with **Esc**, **K**, or the window close button to choose **Apply**, **Discard**, or **Continue Editing**.
+
+## 🎮 Controls
 
 ### Mouse controls
 
-| Action | Button |
+| Action | Control |
 |---|---|
-| Set source point | Left click (only first time) or Right click (always) |
+| Set source point | Left click when no source exists, or Right click at any time |
 | Paint | Left click and drag |
-| Cancel stroke | Right click while drawing |
-| Pan | Middle click and drag |
-| Zoom | Mouse wheel (powers of two) |
-| Brush size | Shift + mouse wheel |
+| Cancel current stroke | Right click while drawing |
+| Pan | Middle drag |
+| Pan | Space + left drag |
+| Zoom | Mouse wheel |
+| Change brush radius | Ctrl + mouse wheel |
+| Pan horizontally | Shift + mouse wheel |
+| Pan vertically | Alt + mouse wheel |
 
 ### Keyboard controls
 
 | Action | Shortcut |
 |---|---|
-| Undo | Ctrl+Z (Cmd+Z on macOS) |
-| Redo | Ctrl+Shift+Z or Ctrl+Y (Cmd+Shift+Z or Cmd+Y on macOS) |
-| Apply and close | Enter |
+| Open Clone Stamp | K |
+| Close Clone Stamp | K while the canvas has keyboard focus |
+| Close / show Apply confirmation | Esc |
+| Undo clone-stamp stroke | Ctrl+Z (Cmd+Z on macOS) |
+| Redo clone-stamp stroke | Ctrl+Shift+Z or Ctrl+Y (Cmd+Shift+Z or Cmd+Y on macOS) |
 
 ## ❓ FAQ
 
-### The brush doesn't paint outside the cel
+### Can I paint outside the original cel?
 
-Make sure **Tiled Mode** is set to **Both** (value 3). In other modes, source wrapping is disabled in one or both directions.
+Yes. The working image covers the full sprite canvas, and Apply expands the cel to include painted pixels outside its original bounds.
 
-### Keyboard shortcuts and Shift+scroll don't work
+Tiled Mode controls wrapping at the **sprite canvas edges**, not whether the original cel is allowed to grow.
 
-Keyboard events (undo/redo, Shift+scroll) are only received by the canvas widget, not the whole dialog. If the canvas loses focus — e.g., after an `app.alert` popup or clicking outside the canvas — these stop working. Click anywhere on the canvas to restore focus. This is a limitation of the Dialog canvas API architecture.
+### What do the Tiled Mode values mean?
 
-### Shift+scroll changes brush size unpredictably (macOS)
+- `0` — no tiling
+- `1` — horizontal / X axis
+- `2` — vertical / Y axis
+- `3` — both axes
 
-If Shift+scroll doesn't change brush size, or the size changes disproportionately (e.g., only decreases), and you use [Linear Mouse](https://linearmouse.app/) on macOS — set **Scrolling Mode** to **By Pixels** and all **Modifier Keys** to **Default Action**.
+The default is `0`.
 
-### The dialog opens too small
+### Why does K sometimes stop closing the dialog after I use a slider?
 
-The dialog is set to fill the entire Aseprite window on open. If it appears small, try resizing it manually — the next session will remember the size.
+Aseprite's slider widget can retain keyboard focus. The custom canvas then does not receive the `K` key event.
+
+Click the canvas to restore its keyboard focus, or use **Esc**, which remains the reliable close key.
+
+This is a limitation of the current Aseprite Dialog focus model, not a loss of clone-stamp state.
+
+### Why does Clone Stamp open almost full screen?
+
+This is intentional. A new session opens using the current Aseprite window dimensions to provide as much editing space as possible.
+
+If you choose **Continue Editing**, the current dialog bounds are preserved for that session.
+
+### Can the Nynorsk translation be edited separately?
+
+Yes. The translation is stored in:
+
+`locale/nn.lua`
+
+Only the translated strings need to be edited. The keys on the left side should remain unchanged. The extension automatically loads the file when Aseprite's language is `nn`.
+
