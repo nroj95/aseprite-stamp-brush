@@ -415,14 +415,38 @@ local function stampSegment(x1, y1, x2, y2, offX, offY)
 	end
 end
 
-local function drawMarker(gc, x, y, r)
+local function markerPath(gc, x, y, r)
 	gc:beginPath()
 	gc:oval(Rectangle(x-r, y-r, r*2, r*2))
 	gc:moveTo(x-4, y)
 	gc:lineTo(x+4, y)
 	gc:moveTo(x, y-4)
 	gc:lineTo(x, y+4)
-	gc:stroke()
+end
+
+local function drawMarker(gc, x, y, r, highContrast)
+	if highContrast then
+		gc:save()
+		gc.blendMode = BlendMode.NORMAL
+
+		-- Dark outer stroke plus light inner stroke keeps the source
+		-- marker visible over both light and dark artwork.
+		gc.strokeWidth = 3
+		gc.color = Color{ red=32, green=32, blue=32, alpha=255 }
+		markerPath(gc, x, y, r)
+		gc:stroke()
+
+		gc.strokeWidth = 1
+		gc.color = Color{ red=200, green=200, blue=200, alpha=255 }
+		markerPath(gc, x, y, r)
+		gc:stroke()
+
+		gc:restore()
+	else
+		gc.strokeWidth = 1
+		markerPath(gc, x, y, r)
+		gc:stroke()
+	end
 end
 
 -- =========================================================================
@@ -737,7 +761,7 @@ local function stampBrushDialog(prefs)
 							local x, y = toCanvas(tx*wImg+wx, ty*hImg+wy)
 							drawMarker(gc, x, y, radius*s)
 							x, y = toCanvas(tx*wImg+sx, ty*hImg+sy)
-							drawMarker(gc, x, y, radius*s)
+							drawMarker(gc, x, y, radius*s, true)
 						end
 					end
 					gc:restore()
@@ -777,18 +801,34 @@ local function stampBrushDialog(prefs)
 				end
 			end,
 			onwheel=function(ev)
-				if isDrawing or isPanning or ev.deltaY == 0 then return end
-				mouseX, mouseY = ev.x, ev.y
-				if ev.shiftKey then
-					radius = boundedNumber(radius-ev.deltaY, radius, 1, 64, true)
+				finishStroke()
+
+				if ev.ctrlKey then
+					-- Ctrl+wheel changes clone radius.
+					local delta = ev.deltaY < 0 and 1 or -1
+					radius = math.max(1, math.min(64, radius+delta))
 					dlg:modify{ id="radius", value=radius }
 					savePrefs(prefs)
+
+				elseif ev.shiftKey then
+					-- Shift+wheel pans horizontally.
+					local amount = ev.deltaY < 0 and 32 or -32
+					vOffX = vOffX+amount
+
+				elseif ev.altKey then
+					-- Alt+wheel pans vertically.
+					local amount = ev.deltaY < 0 and 32 or -32
+					vOffY = vOffY+amount
+
 				else
-					local scale = math.max(minScale, math.min(32, vScale*(ev.deltaY < 0 and 2 or 0.5)))
+					-- Plain wheel zooms around the pointer.
+					local scale = math.max(minScale, math.min(32,
+						vScale*(ev.deltaY < 0 and 2 or 0.5)))
 					vOffX = ev.x-(ev.x-vOffX)*(scale/vScale)
 					vOffY = ev.y-(ev.y-vOffY)*(scale/vScale)
 					vScale = scale
 				end
+
 				refreshPreview()
 			end,
 			onmousedown=function(ev)
@@ -935,11 +975,50 @@ local function stampBrushDialog(prefs)
 		return false
 	end
 
-	local bounds = Rectangle(0, 0, app.window.width, app.window.height)
+	local function initialDialogBounds()
+		local width = app.window and tonumber(app.window.width) or 0
+		local height = app.window and tonumber(app.window.height) or 0
+
+		if width <= 0 or height <= 0 then
+			local hint = dlg.sizeHint
+			width = math.max(1, tonumber(hint.width) or 1)
+			height = math.max(1, tonumber(hint.height) or 1)
+		end
+
+		return Rectangle(
+			0, 0,
+			math.max(1, math.floor(width)),
+			math.max(1, math.floor(height)))
+	end
+
+	local function usableDialogBounds(value)
+		return value ~= nil
+			and type(value.x) == "number"
+			and type(value.y) == "number"
+			and type(value.width) == "number"
+			and type(value.height) == "number"
+			and value.width > 0
+			and value.height > 0
+	end
+
+	local function copyDialogBounds(value)
+		return Rectangle(
+			value.x, value.y,
+			value.width, value.height)
+	end
+
+	local bounds = initialDialogBounds()
+
 	while not exiting do
 		dlg:show{ wait=true, bounds=bounds }
 		if exiting then break end
-		bounds = dlg.bounds
+
+		local shownBounds = dlg.bounds
+		if usableDialogBounds(shownBounds) then
+			bounds = copyDialogBounds(shownBounds)
+		else
+			bounds = initialDialogBounds()
+		end
 		finishStroke()
 		isPanning, panButton, spaceHeld = false, nil, false
 
