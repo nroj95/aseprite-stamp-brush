@@ -250,13 +250,32 @@ local function flushAccumTo(dstImg)
 			local a = maskVal / 255.0
 			local dstPx = dstImg:getPixel(x, y)
 			if mode == ColorMode.RGB then
-				local sr, sg, sb, sa = app.pixelColor.rgbaR(srcPx), app.pixelColor.rgbaG(srcPx),
-				                       app.pixelColor.rgbaB(srcPx), app.pixelColor.rgbaA(srcPx)
-				local dr, dg, db, da = app.pixelColor.rgbaR(dstPx), app.pixelColor.rgbaG(dstPx),
-				                       app.pixelColor.rgbaB(dstPx), app.pixelColor.rgbaA(dstPx)
-				dstImg:drawPixel(x, y, app.pixelColor.rgba(
-					math.floor(sr*a + dr*(1-a) + 0.5), math.floor(sg*a + dg*(1-a) + 0.5),
-					math.floor(sb*a + db*(1-a) + 0.5), math.floor(sa*a + da*(1-a) + 0.5)))
+				local sr, sg, sb, sa = app.pixelColor.rgbaR(srcPx),
+					app.pixelColor.rgbaG(srcPx),
+					app.pixelColor.rgbaB(srcPx),
+					app.pixelColor.rgbaA(srcPx)
+				local dr, dg, db, da = app.pixelColor.rgbaR(dstPx),
+					app.pixelColor.rgbaG(dstPx),
+					app.pixelColor.rgbaB(dstPx),
+					app.pixelColor.rgbaA(dstPx)
+
+				local srcAlpha = sa / 255.0
+				local dstAlpha = da / 255.0
+				local outAlpha = srcAlpha*a + dstAlpha*(1-a)
+
+				if outAlpha <= 0 then
+					dstImg:drawPixel(x, y, app.pixelColor.rgba(0, 0, 0, 0))
+				else
+					local outR = ((sr*srcAlpha)*a + (dr*dstAlpha)*(1-a)) / outAlpha
+					local outG = ((sg*srcAlpha)*a + (dg*dstAlpha)*(1-a)) / outAlpha
+					local outB = ((sb*srcAlpha)*a + (db*dstAlpha)*(1-a)) / outAlpha
+
+					dstImg:drawPixel(x, y, app.pixelColor.rgba(
+						math.floor(outR + 0.5),
+						math.floor(outG + 0.5),
+						math.floor(outB + 0.5),
+						math.floor(outAlpha*255 + 0.5)))
+				end
 			elseif mode == ColorMode.GRAYSCALE then
 				local sv, sa = app.pixelColor.grayaV(srcPx), app.pixelColor.grayaA(srcPx)
 				local dv, da = app.pixelColor.grayaV(dstPx), app.pixelColor.grayaA(dstPx)
