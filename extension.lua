@@ -162,9 +162,6 @@ local function applyToCel()
 	-- No session changes -- nothing to apply
 	local applyX1, applyY1, applyX2, applyY2 = getWorkDirtyBounds()
 	if applyX1 > applyX2 or applyY1 > applyY2 then return end
-	local cw, ch = snapshot.width, snapshot.height
-	if applyX2 < celX or applyX1 > celX + cw or
-	   applyY2 < celY or applyY1 > celY + ch then return end
 
 	-- Check if cel needs to expand
 	local needLeft  = math.min(0, applyX1 - celX)
