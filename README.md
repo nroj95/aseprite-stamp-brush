@@ -132,4 +132,3 @@ Yes. The translation is stored in:
 `locale/nn.lua`
 
 Only the translated strings need to be edited. The keys on the left side should remain unchanged. The extension automatically loads the file when Aseprite's language is `nn`.
-
