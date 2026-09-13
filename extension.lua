@@ -250,7 +250,6 @@ local function flushAccumTo(dstImg)
 		local maskVal = alphaAcc:getPixel(x, y)
 		if maskVal ~= 0 then
 			local srcPx = colorAcc:getPixel(x, y)
-			if srcPx == 0 then goto fcont end
 			local a = maskVal / 255.0
 			local dstPx = dstImg:getPixel(x, y)
 			if mode == ColorMode.RGB then
