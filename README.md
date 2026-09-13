@@ -31,7 +31,7 @@ https://github.com/user-attachments/assets/1e630c10-5291-4cc8-8258-739a48feb691
 - **Selection masking** — painting is restricted to the active selection when one exists.
 - **Dynamic preview** — preview shows the actual resulting pixels before painting, including grayscale, indexed color, and transparency.
 - **High-contrast markers** — source and destination rings use a dark outer stroke and light inner stroke so they remain visible over varied artwork.
-- **Source/destination alignment guide** — after choosing a source, a two-tone line connects it to the moving destination ring until the first destination is chosen, making horizontal and vertical alignment easy to see.
+- **Source/destination alignment guide** — after choosing a source, a two-tone line connects it to the moving destination ring until the first destination is chosen. Its inner stroke turns green when the source and destination are exactly horizontally or vertically aligned.
 - **Local undo/redo** — undo and redo clone-stamp strokes before applying them to the document.
 - **Instant Reset** — jump back to the session's starting image in one click while keeping the full redo history available.
 - **No-op stroke detection** — strokes that do not change any pixels are not added to the local history.

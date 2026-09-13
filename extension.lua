@@ -612,7 +612,7 @@ local function drawMarker(gc, x, y, r, highContrast)
 	end
 end
 
-local function drawGuideLine(gc, x1, y1, x2, y2)
+local function drawGuideLine(gc, x1, y1, x2, y2, aligned)
         gc:save()
         gc.blendMode = BlendMode.NORMAL
 
@@ -624,7 +624,11 @@ local function drawGuideLine(gc, x1, y1, x2, y2)
         gc:stroke()
 
         gc.strokeWidth = 1
-        gc.color = Color{ red=200, green=200, blue=200, alpha=255 }
+        if aligned then
+                gc.color = Color{ red=57, green=255, blue=20, alpha=255 }
+        else
+                gc.color = Color{ red=200, green=200, blue=200, alpha=255 }
+        end
         gc:beginPath()
         gc:moveTo(x1, y1)
         gc:lineTo(x2, y2)
@@ -1002,7 +1006,7 @@ local function stampBrushDialog(prefs)
 							local dx, dy = toCanvas(tx*wImg+wx, ty*hImg+wy)
 							local sxCanvas, syCanvas = toCanvas(tx*wImg+sx, ty*hImg+sy)
 							if not destinationLocked then
-							        drawGuideLine(gc, sxCanvas, syCanvas, dx, dy)
+							        drawGuideLine(gc, sxCanvas, syCanvas, dx, dy, wx == sx or wy == sy)
 							end
 							drawMarker(gc, dx, dy, radius*s, true)
 							drawMarker(gc, sxCanvas, syCanvas, radius*s, true)
