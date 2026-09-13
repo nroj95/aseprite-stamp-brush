@@ -11,6 +11,7 @@ return {
     softness = "Mjukskap",
 
     apply = "Bruk",
+    reset = "Nullstill",
     apply_changes = "Bruke endringane?",
     discard = "Forkast",
     continue_editing = "Hald fram med redigering",

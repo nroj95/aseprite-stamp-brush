@@ -21,6 +21,7 @@ opacity = "Opacity",
 softness = "Softness",
 
 apply = "Apply",
+reset = "Reset",
 apply_changes = "Apply changes?",
 discard = "Discard",
 continue_editing = "Continue Editing",
@@ -705,8 +706,9 @@ local function stampBrushDialog(prefs)
 	local isDrawing, isPanning, spaceHeld = false, false, false
 	local panButton, requestedAction = nil, nil
 	local callbackError = nil
-	local applyPressed = false
-	local applyButtonWidth, applyButtonHeight = 64, 20
+	local applyPressed, resetPressed = false, false
+	local footerWidth, footerHeight = 128, 20
+	local actionButtonWidth = 64
 	local destinationLocked = false
 	local mouseX, mouseY = -1, -1
 	local lastWX, lastWY, strokeOffsetBefore = nil, nil, nil
@@ -821,6 +823,19 @@ local function stampBrushDialog(prefs)
 		if dlg then dlg:repaint() end
 	end
 
+	local function resetToStart()
+		if isDrawing then cancelStroke() end
+		if undoPos > 0 then
+			-- Allocate first so a failed copy cannot move the history position.
+			local nextWork = Image(undoStack[0])
+			local nextSnapshot = Image(nextWork)
+			undoPos = 0
+			workImg, snapshot = nextWork, nextSnapshot
+			invalidatePreview()
+		end
+		refreshPreview()
+	end
+
 	local function updateCanvasCursor()
 		if not dlg then return end
 		local cursor = MouseCursor.ARROW
@@ -866,9 +881,9 @@ local function stampBrushDialog(prefs)
 		return options
 	end
 
-	local function insideApplyButton(ev)
-		return ev.x >= 0 and ev.y >= 0 and
-		       ev.x < applyButtonWidth and ev.y < applyButtonHeight
+	local function insideFooterButton(ev, x)
+		return ev.x >= x and ev.y >= 0 and
+		       ev.x < x+actionButtonWidth and ev.y < footerHeight
 	end
 
 	dlg = Dialog{ title=tr("clone_stamp"), notitlebar=false, resizeable=true }
@@ -1175,36 +1190,53 @@ local function stampBrushDialog(prefs)
 				end
 			end })
 		:newrow()
-		:canvas(guardedWidget{ id="applyButton",
-			width=64,
+		:canvas(guardedWidget{ id="actionFooter",
+			width=128,
 			height=20,
 			autoscaling=true,
-			hexpand=false,
+			hexpand=true,
 			vexpand=false,
 			onpaint=function(ev)
 				local gc = ev.context
-				applyButtonWidth, applyButtonHeight = gc.width, gc.height
-				local bounds = Rectangle(0, 0, gc.width, gc.height)
-				gc:drawThemeRect("button_normal", bounds)
+				footerWidth, footerHeight = gc.width, gc.height
+				local resetX = math.max(0, gc.width-actionButtonWidth)
+
+				local applyBounds = Rectangle(0, 0, actionButtonWidth, gc.height)
+				gc:drawThemeRect("button_normal", applyBounds)
 				gc.color = app.theme.color.button_normal_text
-				local size = gc:measureText(tr("apply"))
+				local applySize = gc:measureText(tr("apply"))
 				gc:fillText(tr("apply"),
-					math.floor((gc.width-size.width)/2),
-					math.floor((gc.height-size.height)/2))
+					math.floor((actionButtonWidth-applySize.width)/2),
+					math.floor((gc.height-applySize.height)/2))
+
+				local resetBounds = Rectangle(resetX, 0, actionButtonWidth, gc.height)
+				gc:drawThemeRect("button_normal", resetBounds)
+				gc.color = app.theme.color.button_normal_text
+				local resetSize = gc:measureText(tr("reset"))
+				gc:fillText(tr("reset"),
+					resetX+math.floor((actionButtonWidth-resetSize.width)/2),
+					math.floor((gc.height-resetSize.height)/2))
 			end,
 			onmousedown=function(ev)
 				if ev.button ~= MouseButton.LEFT then return end
-				-- Arm on press, activate on release, like a normal button.
-				applyPressed = insideApplyButton(ev)
+				local resetX = math.max(0, footerWidth-actionButtonWidth)
+				applyPressed = insideFooterButton(ev, 0)
+				resetPressed = not applyPressed and insideFooterButton(ev, resetX)
 			end,
 			onmouseup=function(ev)
 				if ev.button ~= MouseButton.LEFT then return end
-				local activate = applyPressed and insideApplyButton(ev)
-				applyPressed = false
-				if not activate then return end
-				finishStroke()
-				requestedAction = "apply"
-				dlg:close()
+				local resetX = math.max(0, footerWidth-actionButtonWidth)
+				local applyActivate = applyPressed and insideFooterButton(ev, 0)
+				local resetActivate = resetPressed and insideFooterButton(ev, resetX)
+				applyPressed, resetPressed = false, false
+
+				if applyActivate then
+					finishStroke()
+					requestedAction = "apply"
+					dlg:close()
+				elseif resetActivate then
+					resetToStart()
+				end
 			end
 		})
 
@@ -1271,7 +1303,7 @@ local function stampBrushDialog(prefs)
 
 	while not exiting do
 		-- Reset transient input, not the source, destination, view, or history.
-		applyPressed = false
+		applyPressed, resetPressed = false, false
 		updateCanvasCursor()
 		dlg:show{ wait=true, bounds=bounds }
 		if exiting then break end
