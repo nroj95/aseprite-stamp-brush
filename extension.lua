@@ -434,6 +434,27 @@ local function stampBrushDialog(prefs)
 		return math.floor(wx*vScale + vOffX + 0.5), math.floor(wy*vScale + vOffY + 0.5)
 	end
 
+	local function strokeChanged()
+		if dirtyX1 > dirtyX2 or dirtyY1 > dirtyY2 then
+			return false
+		end
+
+		local previous = undoStack and undoStack[undoPos]
+		if not previous then
+			return true
+		end
+
+		for y = dirtyY1, dirtyY2 do
+			for x = dirtyX1, dirtyX2 do
+				if workImg:getPixel(x, y) ~= previous:getPixel(x, y) then
+					return true
+				end
+			end
+		end
+
+		return false
+	end
+
 	local function pushUndo()
 		undoPos = undoPos + 1
 		for i = undoPos, #undoStack do undoStack[i] = nil end
@@ -729,7 +750,7 @@ local function stampBrushDialog(prefs)
 			end
 			if isDrawing then
 				flushAccumTo(workImg)
-				pushUndo()
+				if strokeChanged() then pushUndo() end
 				snapshot = Image(workImg)
 				alphaAcc, colorAcc, previewImg, stampPreview = nil, nil, nil, nil
 				dlg:repaint()
