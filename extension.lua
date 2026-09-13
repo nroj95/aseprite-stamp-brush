@@ -295,8 +295,20 @@ local function stampWithMask(cx, cy, offX, offY)
 	for my = 0, brushMask.height - 1 do for mx = 0, brushMask.width - 1 do
 		local mv = brushMask:getPixel(mx, my)
 		if mv == 0 then goto mcont end
-		local tx = (cx + mx - r) % w
-		local ty = (cy + my - r) % h
+		local tx = cx + mx - r
+		local ty = cy + my - r
+
+		if isTiledX() then
+			tx = tx % w
+		elseif tx < 0 or tx >= w then
+			goto mcont
+		end
+
+		if isTiledY() then
+			ty = ty % h
+		elseif ty < 0 or ty >= h then
+			goto mcont
+		end
 				local cur = alphaAcc:getPixel(tx, ty)
 				if cur >= mv then goto mcont end
 				-- Selection mask check
