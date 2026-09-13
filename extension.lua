@@ -713,6 +713,9 @@ local function stampBrushDialog(prefs)
 	local applyPressed, resetPressed = false, false
 	local footerWidth, footerHeight = 128, 20
 	local actionButtonWidth = 64
+	local canvasWidth, canvasHeight = 0, 0
+	local magnifierActive = false
+	local magnifierScale, magnifierOffX, magnifierOffY = nil, nil, nil
 	local destinationLocked = false
 	local mouseX, mouseY = -1, -1
 	local lastWX, lastWY, strokeOffsetBefore = nil, nil, nil
@@ -728,6 +731,27 @@ local function stampBrushDialog(prefs)
 	end
 	local function toCanvas(x, y)
 		return math.floor(x*vScale+vOffX+vScale/2+0.5), math.floor(y*vScale+vOffY+vScale/2+0.5)
+	end
+
+	local function zoomViewAt(x, y, factor)
+		local scale = math.max(minScale, math.min(32, vScale*factor))
+		if scale == vScale then return end
+		vOffX = x-(x-vOffX)*(scale/vScale)
+		vOffY = y-(y-vOffY)*(scale/vScale)
+		vScale = scale
+	end
+
+	local function hoveredPixelText()
+		if canvasWidth <= 0 or canvasHeight <= 0 or
+		   mouseX < 0 or mouseY < 0 or
+		   mouseX >= canvasWidth or mouseY >= canvasHeight then
+			return "X: —  Y: —"
+		end
+
+		local wx, wy = toWork(mouseX, mouseY)
+		local x, y = workCoordinates(wx, wy)
+		if x == nil then return "X: —  Y: —" end
+		return string.format("X: %d  Y: %d", x, y)
 	end
 
 	local function invalidatePreview()
@@ -827,6 +851,7 @@ local function stampBrushDialog(prefs)
 		if dlg then dlg:repaint() end
 	end
 
+
 	local function resetToStart()
 		if isDrawing then cancelStroke() end
 		if undoPos > 0 then
@@ -852,6 +877,37 @@ local function stampBrushDialog(prefs)
 		end
 		dlg:modify{ id="canvas", mousecursor=cursor }
 	end
+
+	local function startMagnifier()
+		if magnifierActive or isDrawing or isPanning then return end
+		magnifierScale, magnifierOffX, magnifierOffY = vScale, vOffX, vOffY
+		magnifierActive = true
+
+		local x, y = mouseX, mouseY
+		if canvasWidth <= 0 or canvasHeight <= 0 or
+		   x < 0 or y < 0 or x >= canvasWidth or y >= canvasHeight then
+			x, y = canvasWidth/2, canvasHeight/2
+		end
+
+		-- Two normal zoom steps (4x) make C an immediate detail view.
+		zoomViewAt(x, y, 4)
+		refreshPreview()
+	end
+
+	local function stopMagnifier(repaint)
+		if not magnifierActive then return end
+		-- Finish/cancel transient pointer state before restoring the saved view so
+		-- a held mouse gesture cannot continue from temporary-view coordinates.
+		if isDrawing then finishStroke() end
+		isPanning, panButton = false, nil
+		vScale, vOffX, vOffY = magnifierScale, magnifierOffX, magnifierOffY
+		magnifierActive = false
+		magnifierScale, magnifierOffX, magnifierOffY = nil, nil, nil
+		hoverDirty = true
+		updateCanvasCursor()
+		if repaint ~= false and dlg then dlg:repaint() end
+	end
+
 
 	local function syncSpaceKey(ev)
 		-- Mouse events reflect the current key state even if focus changed and
@@ -934,6 +990,7 @@ local function stampBrushDialog(prefs)
 			onpaint=function(ev)
 				if not workImg then return end
 				local gc = ev.context
+				canvasWidth, canvasHeight = gc.width, gc.height
 				local countX, countY = isTiledX() and 3 or 1, isTiledY() and 3 or 1
 				if not centered then
 					if gc.width <= 0 or gc.height <= 0 then return end
@@ -1052,10 +1109,15 @@ local function stampBrushDialog(prefs)
 				-- Horizontal-only/zero wheel events must not zoom out or shrink
 				-- the brush, and must not prematurely finish a stroke.
 				if ev.deltaY == 0 then return end
+				mouseX, mouseY = ev.x, ev.y
 				finishStroke()
 
-				if ev.ctrlKey then
-					-- Ctrl+wheel changes clone radius.
+				if magnifierActive then
+					-- Wheel belongs to the disposable magnified view while C is held.
+					zoomViewAt(ev.x, ev.y, ev.deltaY < 0 and 2 or 0.5)
+
+				elseif ev.ctrlKey then
+					-- Ctrl+wheel changes clone radius outside magnifier mode.
 					local delta = ev.deltaY < 0 and 1 or -1
 					radius = math.max(1, math.min(64, radius+delta))
 					dlg:modify{ id="radius", value=radius }
@@ -1073,11 +1135,7 @@ local function stampBrushDialog(prefs)
 
 				else
 					-- Plain wheel zooms around the pointer.
-					local scale = math.max(minScale, math.min(32,
-						vScale*(ev.deltaY < 0 and 2 or 0.5)))
-					vOffX = ev.x-(ev.x-vOffX)*(scale/vScale)
-					vOffY = ev.y-(ev.y-vOffY)*(scale/vScale)
-					vScale = scale
+					zoomViewAt(ev.x, ev.y, ev.deltaY < 0 and 2 or 0.5)
 				end
 
 				refreshPreview()
@@ -1172,6 +1230,13 @@ local function stampBrushDialog(prefs)
 					updateCanvasCursor()
 					return
 				end
+				if ev.code == "KeyC" and not ev.ctrlKey and not ev.shiftKey and
+				   not ev.altKey and not ev.metaKey then
+					-- Plain C owns temporary magnification while the canvas has focus.
+					ev:stopPropagation()
+					if ev.repeatCount == 0 then startMagnifier() end
+					return
+				end
 				if ev.repeatCount > 0 then return end
 				if ev.code == "KeyK" and not ev.ctrlKey and not ev.metaKey and not ev.altKey then
 					ev:stopPropagation()
@@ -1191,6 +1256,9 @@ local function stampBrushDialog(prefs)
 					ev:stopPropagation()
 					spaceHeld = false
 					updateCanvasCursor()
+				elseif magnifierActive and ev.code == "KeyC" then
+					ev:stopPropagation()
+					stopMagnifier()
 				end
 			end })
 		:newrow()
@@ -1212,6 +1280,17 @@ local function stampBrushDialog(prefs)
 				gc:fillText(tr("apply"),
 					math.floor((actionButtonWidth-applySize.width)/2),
 					math.floor((gc.height-applySize.height)/2))
+
+				-- Keep the live sprite coordinate readout centered between the actions.
+				local coordText = hoveredPixelText()
+				local coordSize = gc:measureText(coordText)
+				local coordWidth = resetX-actionButtonWidth
+				if coordWidth >= coordSize.width then
+					gc.color = app.theme.color.button_normal_text
+					gc:fillText(coordText,
+						actionButtonWidth+math.floor((coordWidth-coordSize.width)/2),
+						math.floor((gc.height-coordSize.height)/2))
+				end
 
 				local resetBounds = Rectangle(resetX, 0, actionButtonWidth, gc.height)
 				gc:drawThemeRect("button_normal", resetBounds)
@@ -1310,6 +1389,7 @@ local function stampBrushDialog(prefs)
 		applyPressed, resetPressed = false, false
 		updateCanvasCursor()
 		dlg:show{ wait=true, bounds=bounds }
+		stopMagnifier(false)
 		if exiting then break end
 
 		local shownBounds = dlg.bounds

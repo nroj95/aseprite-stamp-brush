@@ -28,6 +28,8 @@ https://github.com/user-attachments/assets/1e630c10-5291-4cc8-8258-739a48feb691
 - **Tiled canvas** — display and work with no tiling, horizontal tiling, vertical tiling, or both axes.
 - **Correct edge behavior** — untiled painting clips at sprite boundaries; enabled tiled axes wrap correctly.
 - **Pan and zoom** — mouse wheel zoom, Space + left drag or middle drag to pan, plus horizontal and vertical wheel panning.
+- **Temporary magnifier** — hold C for an instant 4× detail view; wheel zoom while held is temporary, and releasing C restores the exact previous zoom and pan.
+- **Live pixel coordinates** — the footer shows the sprite X/Y pixel under the pointer and wraps coordinates on tiled axes.
 - **Selection masking** — painting is restricted to the active selection when one exists.
 - **Dynamic preview** — preview shows the actual resulting pixels before painting, including grayscale, indexed color, and transparency.
 - **High-contrast markers** — source and destination rings use a dark outer stroke and light inner stroke so they remain visible over varied artwork.
@@ -84,7 +86,8 @@ Alternatively, clone this repository and copy the folder to your Aseprite extens
 | Pan | Middle drag |
 | Pan | Space + left drag |
 | Zoom | Mouse wheel |
-| Change brush radius | Ctrl + mouse wheel |
+| Change brush radius | Ctrl + mouse wheel (outside temporary magnifier mode) |
+| Adjust temporary magnifier zoom | Mouse wheel while holding C |
 | Pan horizontally | Shift + mouse wheel |
 | Pan vertically | Alt + mouse wheel |
 
@@ -95,6 +98,7 @@ Alternatively, clone this repository and copy the folder to your Aseprite extens
 | Open Clone Stamp | K |
 | Close Clone Stamp | K while the canvas has keyboard focus |
 | Close / show Apply confirmation | Esc |
+| Temporary magnifier | Hold C; release C to restore the previous view |
 | Undo clone-stamp stroke | Ctrl+Z (Cmd+Z on macOS) |
 | Redo clone-stamp stroke | Ctrl+Shift+Z or Ctrl+Y (Cmd+Shift+Z or Cmd+Y on macOS) |
 
