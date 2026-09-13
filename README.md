@@ -30,7 +30,8 @@ https://github.com/user-attachments/assets/1e630c10-5291-4cc8-8258-739a48feb691
 - **Pan and zoom** — mouse wheel zoom, Space + left drag or middle drag to pan, plus horizontal and vertical wheel panning.
 - **Selection masking** — painting is restricted to the active selection when one exists.
 - **Dynamic preview** — preview shows the actual resulting pixels before painting, including grayscale, indexed color, and transparency.
-- **High-contrast source marker** — the source ring uses a dark outer stroke and light inner stroke so it remains visible over varied artwork.
+- **High-contrast markers** — source and destination rings use a dark outer stroke and light inner stroke so they remain visible over varied artwork.
+- **Source/destination alignment guide** — after choosing a source, a two-tone line connects it to the moving destination ring until the first destination is chosen, making horizontal and vertical alignment easy to see.
 - **Local undo/redo** — undo and redo clone-stamp strokes before applying them to the document.
 - **No-op stroke detection** — strokes that do not change any pixels are not added to the local history.
 - **Safe Apply** — all session changes are committed in one native Aseprite transaction so the final Apply can be undone/redone normally in Aseprite.
@@ -63,10 +64,11 @@ Alternatively, clone this repository and copy the folder to your Aseprite extens
 2. _(Optional)_ Make a selection if you only want to paint inside a specific area.
 3. Press **K**, or run _Edit > Clone Stamp_.
 4. **Left-click** when no source exists yet, or **Right-click** at any time, to choose the source point.
-5. **Left-click and drag** to paint with the clone stamp.
-6. **Right-click** again whenever you want to choose a new source point.
-7. Adjust **Tiled Mode**, **Radius**, **Opacity**, and **Softness** as needed.
-8. Click **Apply** to commit immediately, or close with **Esc**, **K**, or the window close button to choose **Apply**, **Discard**, or **Continue Editing**.
+5. Move the destination ring into position. A temporary line connects it to the source to help with horizontal and vertical alignment.
+6. **Left-click and drag** to lock the source-to-destination offset and paint with the clone stamp.
+7. **Right-click** again whenever you want to choose a new source point.
+8. Adjust **Tiled Mode**, **Radius**, **Opacity**, and **Softness** as needed.
+9. Click **Apply** to commit immediately, or close with **Esc**, **K**, or the window close button to choose **Apply**, **Discard**, or **Continue Editing**.
 
 ## 🎮 Controls
 
