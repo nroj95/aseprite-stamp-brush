@@ -557,6 +557,27 @@ local function drawMarker(gc, x, y, r, highContrast)
 	end
 end
 
+local function drawGuideLine(gc, x1, y1, x2, y2)
+        gc:save()
+        gc.blendMode = BlendMode.NORMAL
+
+        gc.strokeWidth = 3
+        gc.color = Color{ red=32, green=32, blue=32, alpha=255 }
+        gc:beginPath()
+        gc:moveTo(x1, y1)
+        gc:lineTo(x2, y2)
+        gc:stroke()
+
+        gc.strokeWidth = 1
+        gc.color = Color{ red=200, green=200, blue=200, alpha=255 }
+        gc:beginPath()
+        gc:moveTo(x1, y1)
+        gc:lineTo(x2, y2)
+        gc:stroke()
+
+        gc:restore()
+end
+
 -- =========================================================================
 -- Dialog (same controls, modal behavior, and shortcuts)
 -- =========================================================================
@@ -629,6 +650,7 @@ local function stampBrushDialog(prefs)
 	if not ready then disposeState(); app.alert(reason); return end
 	local isDrawing, isPanning, spaceHeld = false, false, false
 	local panButton, requestedAction = nil, nil
+	local destinationLocked = false
 	local mouseX, mouseY = -1, -1
 	local lastWX, lastWY, strokeOffsetBefore = nil, nil, nil
 	local previewImg, previewDisplay, baseDisplay, stampPreview = nil, nil, nil, nil
@@ -866,10 +888,13 @@ local function stampBrushDialog(prefs)
 					gc.color = Color{ red=255, green=255, blue=255, alpha=255 }
 					for ty = 0, countY-1 do
 						for tx = 0, countX-1 do
-							local x, y = toCanvas(tx*wImg+wx, ty*hImg+wy)
-							drawMarker(gc, x, y, radius*s)
-							x, y = toCanvas(tx*wImg+sx, ty*hImg+sy)
-							drawMarker(gc, x, y, radius*s, true)
+							local dx, dy = toCanvas(tx*wImg+wx, ty*hImg+wy)
+							local sxCanvas, syCanvas = toCanvas(tx*wImg+sx, ty*hImg+sy)
+							if not destinationLocked then
+							        drawGuideLine(gc, sxCanvas, syCanvas, dx, dy)
+							end
+							drawMarker(gc, dx, dy, radius*s, true)
+							drawMarker(gc, sxCanvas, syCanvas, radius*s, true)
 						end
 					end
 					gc:restore()
@@ -957,6 +982,7 @@ local function stampBrushDialog(prefs)
 					local x, y = workCoordinates(wx, wy)
 					if x == nil then return end
 					sourcePoint, offset = Point(x, y), nil
+					destinationLocked = false
 					snapshot = Image(workImg)
 					updateCanvasCursor()
 					refreshPreview()
@@ -967,18 +993,20 @@ local function stampBrushDialog(prefs)
 					local x, y = workCoordinates(wx, wy)
 					if x == nil then return end
 					sourcePoint, offset = Point(x, y), nil
+					destinationLocked = false
 					snapshot = Image(workImg)
 					updateCanvasCursor()
 					refreshPreview()
 					return
 				end
-				strokeOffsetBefore = offset
 				if not offset then
 					-- Tile copies are views of the same pixels, not different source offsets.
 					local anchorX = isTiledX() and wx % workImg.width or wx
 					local anchorY = isTiledY() and wy % workImg.height or wy
 					offset = Point(anchorX-sourcePoint.x, anchorY-sourcePoint.y)
+					destinationLocked = true
 				end
+				strokeOffsetBefore = offset
 				isDrawing, lastWX, lastWY = true, wx, wy
 				ensureBrushMask()
 				beginAccum()
