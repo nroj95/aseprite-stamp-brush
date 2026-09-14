@@ -29,7 +29,7 @@ https://github.com/user-attachments/assets/1e630c10-5291-4cc8-8258-739a48feb691
 - **Correct edge behavior** — untiled painting clips at sprite boundaries; enabled tiled axes wrap correctly.
 - **Pan and zoom** — mouse wheel zoom, Space + left drag or middle drag to pan, plus horizontal and vertical wheel panning.
 - **Temporary magnifier** — hold C for an instant 4× detail view; wheel zoom while held is temporary, and releasing C restores the exact previous zoom and pan.
-- **Live pixel coordinates** — the footer shows the sprite X/Y pixel under the pointer and wraps coordinates on tiled axes.
+- **Live pixel status** — the footer shows hovered color channels, hex, alpha, and sprite X/Y coordinates, including wrapped coordinates on tiled axes.
 - **Selection masking** — painting is restricted to the active selection when one exists.
 - **Dynamic preview** — preview shows the actual resulting pixels before painting, including grayscale, indexed color, and transparency.
 - **Distinct source/destination markers** — both rings use a dark outer stroke; the source keeps a light-gray inner stroke while the destination uses warm gold.

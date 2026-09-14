@@ -198,13 +198,26 @@ end
 
 local function paletteForFrame(sprite, frameNumber)
 	local chosen, chosenFrame = nil, -1
-	for _, palette in ipairs(sprite.palettes) do
+	local palettes = sprite.palettes
+
+	-- Bound palette access explicitly: some Aseprite builds throw instead of
+	-- returning nil when ipairs probes one element past the palette array.
+	for index = 1, #palettes do
+		local palette = palettes[index]
 		local frame = palette.frame
-		local number = frame and frame.frameNumber or 1
+		local number = 1
+
+		if type(frame) == "number" then
+			number = frame
+		elseif frame and frame.frameNumber then
+			number = frame.frameNumber
+		end
+
 		if number <= frameNumber and number >= chosenFrame then
 			chosen, chosenFrame = palette, number
 		end
 	end
+
 	return chosen
 end
 
@@ -744,13 +757,48 @@ local function stampBrushDialog(prefs)
 		if canvasWidth <= 0 or canvasHeight <= 0 or
 		   mouseX < 0 or mouseY < 0 or
 		   mouseX >= canvasWidth or mouseY >= canvasHeight then
-			return "X: —  Y: —"
+			return "—    X: —  Y: —"
 		end
 
 		local wx, wy = toWork(mouseX, mouseY)
 		local x, y = workCoordinates(wx, wy)
-		if x == nil then return "X: —  Y: —" end
-		return string.format("X: %d  Y: %d", x, y)
+		if x == nil then return "—    X: —  Y: —" end
+
+		local pixel = workImg:getPixel(x, y)
+
+		if celColorMode == ColorMode.RGB then
+			local r, g, b, a = pixelRGBA(pixel)
+			return string.format(
+				"R%d G%d B%d  #%02X%02X%02X  A%d    X: %d  Y: %d",
+				r, g, b, r, g, b, a, x, y)
+		elseif celColorMode == ColorMode.GRAYSCALE then
+			local pc = app.pixelColor
+			local value = pc.grayaV(pixel)
+			local alpha = backgroundLayer and 255 or pc.grayaA(pixel)
+			return string.format(
+				"GRAY V%d  A%d    X: %d  Y: %d",
+				value, alpha, x, y)
+		end
+
+		local index = pixel
+		local color = paletteColors and paletteColors[index]
+		local r, g, b, a
+
+		if color then
+			r, g, b = color[1], color[2], color[3]
+
+			if not backgroundLayer and index == transparentIndex then
+				a = 0
+			else
+				a = backgroundLayer and 255 or color[4]
+			end
+		else
+			r, g, b, a = pixelRGBA(pixel)
+		end
+
+		return string.format(
+			"IDX%d  R%d G%d B%d  #%02X%02X%02X  A%d    X: %d  Y: %d",
+			index, r, g, b, r, g, b, a, x, y)
 	end
 
 	local function invalidatePreview()
@@ -1281,7 +1329,7 @@ local function stampBrushDialog(prefs)
 					math.floor((actionButtonWidth-applySize.width)/2),
 					math.floor((gc.height-applySize.height)/2))
 
-				-- Keep the live sprite coordinate readout centered between the actions.
+				-- Keep the live pixel status centered between the actions.
 				local coordText = hoveredPixelText()
 				local coordSize = gc:measureText(coordText)
 				local coordWidth = resetX-actionButtonWidth
