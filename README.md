@@ -23,7 +23,7 @@ https://github.com/user-attachments/assets/1e630c10-5291-4cc8-8258-739a48feb691
 
 - **Clone-stamp brush** — sample from any part of the sprite canvas and paint it elsewhere.
 - **Soft brush** — adjustable radius (1–64), softness, opacity, and smooth stamp interpolation.
-- **Eraser-only mode** — switch the same brush engine into soft alpha erasing without choosing a clone source.
+- **Eraser-only mode** — switch the same brush engine into soft erasing without choosing a clone source.
 - **RGB, grayscale, and indexed color** — cloning and previews work across all three supported Aseprite image modes.
 - **Transparent cloning** — transparent source pixels can erase destination pixels correctly.
 - **Alpha-aware blending** — opacity behaves correctly with partially transparent and fully transparent source pixels.
