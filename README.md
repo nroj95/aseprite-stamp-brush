@@ -1,14 +1,12 @@
 # Stamp Brush
 
-A clone-stamp and soft-eraser extension for [Aseprite](https://www.aseprite.org/) — sample and paint from another part of a cel, or switch the same soft brush into eraser-only mode. Includes tiled canvas support, pan/zoom, selection masking, local undo/redo, transparent cloning, and RGB, grayscale, and indexed-color support.
+Stamp Brush is a clone-stamp and soft-eraser extension for [Aseprite](https://www.aseprite.org/). Sample from another part of a cel and paint with it, or switch the same soft brush into eraser-only mode. It includes tiled canvas support, pan/zoom, selection masking, local undo/redo, transparent cloning, and RGB, grayscale, and indexed-color support.
 
 <p align="center">
 <img src="https://img.shields.io/badge/Aseprite-1.3+-brightgreen" alt="Aseprite 1.3+">
 <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License">
 <img src="https://img.shields.io/badge/version-1.0.0-orange" alt="Version 1.0.0">
 </p>
-
-https://github.com/user-attachments/assets/1e630c10-5291-4cc8-8258-739a48feb691
 
 ## 📜 Table of contents
 
@@ -149,6 +147,6 @@ Only the translated strings need to be edited. The keys on the left side should 
 
 This project is based on the original [Aseprite Stamp Brush](https://github.com/nklbdev/aseprite-stamp-brush) by [nklbdev](https://github.com/nklbdev).
 
-The original project provided the foundation for this extension. This repository continues that work with substantial changes to the editing engine, correctness, controls, UI, workflow, localization, and additional tools.
+The original project provided the foundation for Stamp Brush. This project is now independently maintained and substantially expands that foundation with changes to the editing engine, correctness, controls, UI, workflow, localization, and additional tools.
 
 The original MIT copyright and license notice are preserved in [`LICENSE`](LICENSE).
