@@ -10,12 +10,41 @@ Stamp Brush is a clone-stamp and soft-eraser extension for [Aseprite](https://ww
 
 ## 📜 Table of contents
 
+- [Controls](#-controls)
 - [Features](#-features)
 - [How to install](#-how-to-install)
 - [How to use](#-how-to-use)
-- [Controls](#-controls)
 - [FAQ](#-faq)
 - [Credits](#-credits)
+
+## 🎮 Controls
+
+### Mouse controls
+
+| Action | Control |
+|---|---|
+| Set source point | Left click when no source exists, or Right click at any time |
+| Paint / erase | Left click and drag |
+| Toggle clone / eraser mode | Click **Eraser Only** or **Clone Stamp** in the footer |
+| Cancel current stroke | Right click while drawing |
+| Pan | Middle drag |
+| Pan | Space + left drag |
+| Zoom | Mouse wheel |
+| Change brush radius | Ctrl + mouse wheel (outside temporary magnifier mode) |
+| Adjust temporary magnifier zoom | Mouse wheel while holding C |
+| Pan horizontally | Shift + mouse wheel |
+| Pan vertically | Alt + mouse wheel |
+
+### Keyboard controls
+
+| Action | Shortcut |
+|---|---|
+| Open Clone Stamp | K |
+| Close Clone Stamp | K while the canvas has keyboard focus |
+| Close / show Apply confirmation | Esc |
+| Temporary magnifier | Hold C; release C to restore the previous view |
+| Undo clone-stamp stroke | Ctrl+Z (Cmd+Z on macOS) |
+| Redo clone-stamp stroke | Ctrl+Shift+Z or Ctrl+Y (Cmd+Shift+Z or Cmd+Y on macOS) |
 
 ## 🎯 Features
 
@@ -74,35 +103,6 @@ Alternatively, clone this repository and copy the folder to your Aseprite extens
 9. Click **Eraser Only** in the footer whenever you want the brush to erase instead of clone. The button changes to **Clone Stamp** while eraser mode is active.
 10. Click **Reset** at the bottom-right to jump back to the session start without discarding redo history, or click **Apply** at the bottom-left to commit immediately.
 11. Close with **Esc**, **K**, or the window close button to choose **Apply**, **Discard**, or **Continue Editing**.
-
-## 🎮 Controls
-
-### Mouse controls
-
-| Action | Control |
-|---|---|
-| Set source point | Left click when no source exists, or Right click at any time |
-| Paint / erase | Left click and drag |
-| Toggle clone / eraser mode | Click **Eraser Only** or **Clone Stamp** in the footer |
-| Cancel current stroke | Right click while drawing |
-| Pan | Middle drag |
-| Pan | Space + left drag |
-| Zoom | Mouse wheel |
-| Change brush radius | Ctrl + mouse wheel (outside temporary magnifier mode) |
-| Adjust temporary magnifier zoom | Mouse wheel while holding C |
-| Pan horizontally | Shift + mouse wheel |
-| Pan vertically | Alt + mouse wheel |
-
-### Keyboard controls
-
-| Action | Shortcut |
-|---|---|
-| Open Clone Stamp | K |
-| Close Clone Stamp | K while the canvas has keyboard focus |
-| Close / show Apply confirmation | Esc |
-| Temporary magnifier | Hold C; release C to restore the previous view |
-| Undo clone-stamp stroke | Ctrl+Z (Cmd+Z on macOS) |
-| Redo clone-stamp stroke | Ctrl+Shift+Z or Ctrl+Y (Cmd+Shift+Z or Cmd+Y on macOS) |
 
 ## ❓ FAQ
 
