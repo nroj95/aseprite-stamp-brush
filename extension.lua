@@ -14,6 +14,8 @@ local TILED_NONE, TILED_X, TILED_Y, TILED_BOTH = 0, 1, 2, 3
 
 local uiText = {
 clone_stamp = "Clone Stamp",
+eraser_only = "Eraser Only",
+eraser_needs_transparency = "Eraser Only requires a non-background layer with transparency.",
 
 tiled_mode = "Tiled Mode",
 radius = "Radius",
@@ -120,6 +122,7 @@ end
 -- =========================================================================
 local dlg = nil
 local sessionBusy, exiting = false, false
+local eraserOnly = false
 local radius, softness, opacity, spacing = 14, 0.67, 1.0, 0.25
 local workImg, sourcePoint, offset, snapshot = nil, nil, nil, nil
 local undoStack, undoPos = nil, 0
@@ -149,6 +152,7 @@ local function resetAccum()
 end
 
 local function disposeState()
+	eraserOnly = false
 	workImg, sourcePoint, offset, snapshot = nil, nil, nil, nil
 	undoStack, undoPos = nil, 0
 	sessionSprite, sessionLayer, sessionFrame, sessionCel = nil, nil, nil, nil
@@ -393,6 +397,25 @@ local function blendPixel(source, destination, coverage)
 	return app.pixelColor.rgba(red, green, blue, outAlpha)
 end
 
+local function erasePixel(destination, coverage)
+	if coverage <= 0 or backgroundLayer then return destination end
+
+	-- Indexed images cannot store per-pixel partial alpha. Keep the existing
+	-- binary transparent-index rule used elsewhere in the extension.
+	if celColorMode == ColorMode.INDEXED then
+		return coverage > 127 and transparentIndex or destination
+	end
+
+	local red, green, blue, alpha = pixelRGBA(destination)
+	local outAlpha = math.floor(alpha*(255-coverage)/255 + 0.5)
+
+	if celColorMode == ColorMode.GRAYSCALE then
+		return app.pixelColor.graya(red, outAlpha)
+	end
+
+	return app.pixelColor.rgba(red, green, blue, outAlpha)
+end
+
 local function makeDisplayImage(image)
 	if celColorMode == ColorMode.RGB and not backgroundLayer then return image end
 	local spec = ImageSpec(image.spec)
@@ -536,7 +559,7 @@ local function sampleSource(tx, ty, offX, offY)
 	return snapshot:getPixel(x, y)
 end
 
-local function forBrushPixels(cx, cy, offX, offY, visit)
+local function forMaskPixels(cx, cy, visit)
 	local r = brushMaskR
 	for my = 0, brushMask.height-1 do
 		for mx = 0, brushMask.width-1 do
@@ -544,18 +567,25 @@ local function forBrushPixels(cx, cy, offX, offY, visit)
 			if coverage > 0 then
 				local x, y = workCoordinates(cx+mx-r, cy+my-r)
 				if x ~= nil and (not selMask or selMask:getPixel(x, y) ~= 0) then
-					local source = sampleSource(x, y, offX, offY)
-					if source ~= nil then visit(x, y, source, coverage) end
+					visit(x, y, coverage)
 				end
 			end
 		end
 	end
 end
 
+local function forBrushPixels(cx, cy, offX, offY, visit)
+	forMaskPixels(cx, cy, function(x, y, coverage)
+		local source = sampleSource(x, y, offX, offY)
+		if source ~= nil then visit(x, y, source, coverage) end
+	end)
+end
+
 local function beginAccum()
 	alphaAcc = Image(workImg.width, workImg.height, ColorMode.GRAYSCALE)
 	alphaAcc:clear()
-	colorAcc = newSessionImage(workImg.width, workImg.height)
+	colorAcc = nil
+	if not eraserOnly then colorAcc = newSessionImage(workImg.width, workImg.height) end
 	dirtyX1, dirtyY1, dirtyX2, dirtyY2 = workImg.width, workImg.height, -1, -1
 end
 
@@ -569,25 +599,49 @@ local function stampWithMask(cx, cy, offX, offY)
 	end)
 end
 
+local function eraseWithMask(cx, cy)
+	forMaskPixels(cx, cy, function(x, y, coverage)
+		if alphaAcc:getPixel(x, y) >= coverage then return end
+		alphaAcc:drawPixel(x, y, coverage)
+		dirtyX1, dirtyY1 = math.min(dirtyX1, x), math.min(dirtyY1, y)
+		dirtyX2, dirtyY2 = math.max(dirtyX2, x), math.max(dirtyY2, y)
+	end)
+end
+
+local function paintWithMask(cx, cy, offX, offY)
+	if eraserOnly then
+		eraseWithMask(cx, cy)
+	else
+		stampWithMask(cx, cy, offX, offY)
+	end
+end
+
 local function flushAccumTo(destination)
 	if not alphaAcc or dirtyX1 > dirtyX2 or dirtyY1 > dirtyY2 then return end
 	for y = dirtyY1, dirtyY2 do
 		for x = dirtyX1, dirtyX2 do
 			local coverage = alphaAcc:getPixel(x, y)
 			if coverage > 0 then
-				destination:drawPixel(x, y, blendPixel(colorAcc:getPixel(x, y), destination:getPixel(x, y), coverage))
+				local current = destination:getPixel(x, y)
+				local result
+				if eraserOnly then
+					result = erasePixel(current, coverage)
+				else
+					result = blendPixel(colorAcc:getPixel(x, y), current, coverage)
+				end
+				destination:drawPixel(x, y, result)
 			end
 		end
 	end
 end
 
-local function stampSegment(x1, y1, x2, y2, offX, offY)
+local function paintSegment(x1, y1, x2, y2, offX, offY)
 	local step = math.max(1, math.floor(brushMaskR*spacing))
 	local dx, dy = x2-x1, y2-y1
 	local count = math.max(1, math.ceil(math.sqrt(dx*dx+dy*dy)/step))
 	for i = 1, count do
 		local t = i/count
-		stampWithMask(math.floor(x1+dx*t+0.5), math.floor(y1+dy*t+0.5), offX, offY)
+		paintWithMask(math.floor(x1+dx*t+0.5), math.floor(y1+dy*t+0.5), offX, offY)
 	end
 end
 
@@ -722,9 +776,9 @@ local function stampBrushDialog(prefs)
 	local isDrawing, isPanning, spaceHeld = false, false, false
 	local panButton, requestedAction = nil, nil
 	local callbackError = nil
-	local applyPressed, resetPressed = false, false
-	local footerWidth, footerHeight = 128, 20
-	local actionButtonWidth = 64
+	local applyPressed, eraserPressed, resetPressed = false, false, false
+	local footerWidth, footerHeight = 256, 20
+	local actionButtonWidth, eraserButtonWidth = 64, 96
 	local canvasWidth, canvasHeight = 0, 0
 	local magnifierActive = false
 	local magnifierScale, magnifierOffX, magnifierOffY = nil, nil, nil
@@ -808,7 +862,7 @@ local function stampBrushDialog(prefs)
 	end
 
 	local function updateStampPreview(wx, wy, offX, offY)
-		if offX == nil or offY == nil then stampPreview = nil; return end
+		if not eraserOnly and (offX == nil or offY == nil) then stampPreview = nil; return end
 		ensureBrushMask()
 		if not baseDisplay then baseDisplay = makeDisplayImage(workImg) end
 		if not stampPreview then stampPreview = Image(baseDisplay); hoverPixels = {} end
@@ -819,14 +873,27 @@ local function stampBrushDialog(prefs)
 			stampPreview:drawPixel(x, y, baseDisplay:getPixel(x, y))
 		end
 		hoverPixels = {}
-		forBrushPixels(wx, wy, offX, offY, function(x, y, source, coverage)
+
+		local function previewPixel(x, y, coverage, source)
 			local key = y*workImg.width+x
 			if (hoverPixels[key] or 0) >= coverage then return end
 			hoverPixels[key] = coverage
-			local result = blendPixel(source, workImg:getPixel(x, y), coverage)
+			local current = workImg:getPixel(x, y)
+			local result = eraserOnly and erasePixel(current, coverage) or blendPixel(source, current, coverage)
 			local r, g, b, a = pixelRGBA(result)
 			stampPreview:drawPixel(x, y, app.pixelColor.rgba(r, g, b, a))
-		end)
+		end
+
+		if eraserOnly then
+			forMaskPixels(wx, wy, function(x, y, coverage)
+				previewPixel(x, y, coverage, nil)
+			end)
+		else
+			forBrushPixels(wx, wy, offX, offY, function(x, y, source, coverage)
+				previewPixel(x, y, coverage, source)
+			end)
+		end
+
 		stampPWX, stampPWY, hoverDirty = wx, wy, false
 	end
 
@@ -919,7 +986,7 @@ local function stampBrushDialog(prefs)
 			cursor = MouseCursor.GRABBING
 		elseif spaceHeld then
 			cursor = MouseCursor.GRAB
-		elseif sourcePoint then
+		elseif eraserOnly or sourcePoint then
 			cursor = MouseCursor.NONE
 		end
 		dlg:modify{ id="canvas", mousecursor=cursor }
@@ -988,9 +1055,9 @@ local function stampBrushDialog(prefs)
 		return options
 	end
 
-	local function insideFooterButton(ev, x)
+	local function insideFooterButton(ev, x, width)
 		return ev.x >= x and ev.y >= 0 and
-		       ev.x < x+actionButtonWidth and ev.y < footerHeight
+		       ev.x < x+width and ev.y < footerHeight
 	end
 
 	dlg = Dialog{ title=tr("clone_stamp"), notitlebar=false, resizeable=true }
@@ -1052,13 +1119,17 @@ local function stampBrushDialog(prefs)
 				end
 				local s, ox, oy = vScale, vOffX, vOffY
 				local wImg, hImg = workImg.width, workImg.height
-				local showHover = not isDrawing and not isPanning and sourcePoint and
+				local showHover = not isDrawing and not isPanning and (eraserOnly or sourcePoint) and
 					mouseX >= 0 and mouseY >= 0 and mouseX < gc.width and mouseY < gc.height
 				if showHover then
 					local wx, wy = toWork(mouseX, mouseY)
 					if hoverDirty or wx ~= stampPWX or wy ~= stampPWY then
-						updateStampPreview(wx, wy, offset and offset.x or wx-sourcePoint.x,
-							offset and offset.y or wy-sourcePoint.y)
+						if eraserOnly then
+							updateStampPreview(wx, wy, nil, nil)
+						else
+							updateStampPreview(wx, wy, offset and offset.x or wx-sourcePoint.x,
+								offset and offset.y or wy-sourcePoint.y)
+						end
 					end
 				end
 				if not baseDisplay then baseDisplay = makeDisplayImage(workImg) end
@@ -1097,24 +1168,39 @@ local function stampBrushDialog(prefs)
 					gc:restore()
 				end
 
-				if mouseX >= 0 and mouseY >= 0 and sourcePoint then
+				if mouseX >= 0 and mouseY >= 0 and (eraserOnly or sourcePoint) then
 					local wx, wy = toWork(mouseX, mouseY)
-					local sx, sy = offset and wx-offset.x or sourcePoint.x, offset and wy-offset.y or sourcePoint.y
-					if isTiledX() then wx, sx = wx % wImg, sx % wImg end
-					if isTiledY() then wy, sy = wy % hImg, sy % hImg end
+					local sx, sy = nil, nil
+					if not eraserOnly then
+						sx = offset and wx-offset.x or sourcePoint.x
+						sy = offset and wy-offset.y or sourcePoint.y
+					end
+					if isTiledX() then
+						wx = wx % wImg
+						if sx ~= nil then sx = sx % wImg end
+					end
+					if isTiledY() then
+						wy = wy % hImg
+						if sy ~= nil then sy = sy % hImg end
+					end
 					gc:save()
 					gc.blendMode = BlendMode.DIFFERENCE
 					gc.color = Color{ red=255, green=255, blue=255, alpha=255 }
 					for ty = 0, countY-1 do
 						for tx = 0, countX-1 do
 							local dx, dy = toCanvas(tx*wImg+wx, ty*hImg+wy)
-							local sxCanvas, syCanvas = toCanvas(tx*wImg+sx, ty*hImg+sy)
-							if not destinationLocked then
-							        drawGuideLine(gc, sxCanvas, syCanvas, dx, dy, wx == sx or wy == sy)
+							if eraserOnly then
+								drawMarker(gc, dx, dy, radius*s, true,
+									Color{ red=230, green=201, blue=106, alpha=255 })
+							else
+								local sxCanvas, syCanvas = toCanvas(tx*wImg+sx, ty*hImg+sy)
+								if not destinationLocked then
+									drawGuideLine(gc, sxCanvas, syCanvas, dx, dy, wx == sx or wy == sy)
+								end
+								drawMarker(gc, dx, dy, radius*s, true,
+									Color{ red=230, green=201, blue=106, alpha=255 })
+								drawMarker(gc, sxCanvas, syCanvas, radius*s, true)
 							end
-							drawMarker(gc, dx, dy, radius*s, true,
-								Color{ red=230, green=201, blue=106, alpha=255 })
-							drawMarker(gc, sxCanvas, syCanvas, radius*s, true)
 						end
 					end
 					gc:restore()
@@ -1165,7 +1251,7 @@ local function stampBrushDialog(prefs)
 					zoomViewAt(ev.x, ev.y, ev.deltaY < 0 and 2 or 0.5)
 
 				elseif ev.ctrlKey then
-					-- Ctrl+wheel changes clone radius outside magnifier mode.
+					-- Ctrl+wheel changes brush radius outside magnifier mode.
 					local delta = ev.deltaY < 0 and 1 or -1
 					radius = math.max(1, math.min(64, radius+delta))
 					dlg:modify{ id="radius", value=radius }
@@ -1204,6 +1290,7 @@ local function stampBrushDialog(prefs)
 				local wx, wy = toWork(ev.x, ev.y)
 				if ev.button == MouseButton.RIGHT then
 					if isDrawing then cancelStroke(); refreshPreview(); return end
+					if eraserOnly then return end
 					local x, y = workCoordinates(wx, wy)
 					if x == nil then return end
 					sourcePoint, offset = Point(x, y), nil
@@ -1214,6 +1301,16 @@ local function stampBrushDialog(prefs)
 					return
 				end
 				if ev.button ~= MouseButton.LEFT or isDrawing then return end
+				if eraserOnly then
+					strokeOffsetBefore = offset
+					isDrawing, lastWX, lastWY = true, wx, wy
+					ensureBrushMask()
+					beginAccum()
+					paintWithMask(wx, wy, nil, nil)
+					updatePreview()
+					dlg:repaint()
+					return
+				end
 				if not sourcePoint then
 					local x, y = workCoordinates(wx, wy)
 					if x == nil then return end
@@ -1235,7 +1332,7 @@ local function stampBrushDialog(prefs)
 				isDrawing, lastWX, lastWY = true, wx, wy
 				ensureBrushMask()
 				beginAccum()
-				stampWithMask(wx, wy, offset.x, offset.y)
+				paintWithMask(wx, wy, offset.x, offset.y)
 				updatePreview()
 				dlg:repaint()
 			end,
@@ -1248,7 +1345,8 @@ local function stampBrushDialog(prefs)
 				elseif isDrawing then
 					local wx, wy = toWork(ev.x, ev.y)
 					if wx ~= lastWX or wy ~= lastWY then
-						stampSegment(lastWX, lastWY, wx, wy, offset.x, offset.y)
+						paintSegment(lastWX, lastWY, wx, wy,
+							offset and offset.x or nil, offset and offset.y or nil)
 						lastWX, lastWY = wx, wy
 						updatePreview()
 					end
@@ -1267,7 +1365,10 @@ local function stampBrushDialog(prefs)
 				end
 				if ev.button ~= MouseButton.LEFT or not isDrawing then return end
 				local wx, wy = toWork(ev.x, ev.y)
-				if wx ~= lastWX or wy ~= lastWY then stampSegment(lastWX, lastWY, wx, wy, offset.x, offset.y) end
+				if wx ~= lastWX or wy ~= lastWY then
+					paintSegment(lastWX, lastWY, wx, wy,
+						offset and offset.x or nil, offset and offset.y or nil)
+				end
 				finishStroke()
 				dlg:repaint()
 			end,
@@ -1311,7 +1412,7 @@ local function stampBrushDialog(prefs)
 			end })
 		:newrow()
 		:canvas(guardedWidget{ id="actionFooter",
-			width=128,
+			width=256,
 			height=20,
 			autoscaling=true,
 			hexpand=true,
@@ -1319,7 +1420,9 @@ local function stampBrushDialog(prefs)
 			onpaint=function(ev)
 				local gc = ev.context
 				footerWidth, footerHeight = gc.width, gc.height
-				local resetX = math.max(0, gc.width-actionButtonWidth)
+				local eraserX = actionButtonWidth
+				local eraserRight = eraserX+eraserButtonWidth
+				local resetX = math.max(eraserRight, gc.width-actionButtonWidth)
 
 				local applyBounds = Rectangle(0, 0, actionButtonWidth, gc.height)
 				gc:drawThemeRect("button_normal", applyBounds)
@@ -1329,14 +1432,24 @@ local function stampBrushDialog(prefs)
 					math.floor((actionButtonWidth-applySize.width)/2),
 					math.floor((gc.height-applySize.height)/2))
 
+				local eraserBounds = Rectangle(eraserX, 0, eraserButtonWidth, gc.height)
+				gc:drawThemeRect("button_normal", eraserBounds)
+				gc.color = app.theme.color.button_normal_text
+				-- The toggle names the mode clicking it will switch to.
+				local eraserLabel = eraserOnly and tr("clone_stamp") or tr("eraser_only")
+				local eraserSize = gc:measureText(eraserLabel)
+				gc:fillText(eraserLabel,
+					eraserX+math.floor((eraserButtonWidth-eraserSize.width)/2),
+					math.floor((gc.height-eraserSize.height)/2))
+
 				-- Keep the live pixel status centered between the actions.
 				local coordText = hoveredPixelText()
 				local coordSize = gc:measureText(coordText)
-				local coordWidth = resetX-actionButtonWidth
+				local coordWidth = resetX-eraserRight
 				if coordWidth >= coordSize.width then
 					gc.color = app.theme.color.button_normal_text
 					gc:fillText(coordText,
-						actionButtonWidth+math.floor((coordWidth-coordSize.width)/2),
+						eraserRight+math.floor((coordWidth-coordSize.width)/2),
 						math.floor((gc.height-coordSize.height)/2))
 				end
 
@@ -1350,21 +1463,38 @@ local function stampBrushDialog(prefs)
 			end,
 			onmousedown=function(ev)
 				if ev.button ~= MouseButton.LEFT then return end
-				local resetX = math.max(0, footerWidth-actionButtonWidth)
-				applyPressed = insideFooterButton(ev, 0)
-				resetPressed = not applyPressed and insideFooterButton(ev, resetX)
+				local eraserX = actionButtonWidth
+				local eraserRight = eraserX+eraserButtonWidth
+				local resetX = math.max(eraserRight, footerWidth-actionButtonWidth)
+				applyPressed = insideFooterButton(ev, 0, actionButtonWidth)
+				eraserPressed = not applyPressed and insideFooterButton(ev, eraserX, eraserButtonWidth)
+				resetPressed = not applyPressed and not eraserPressed and
+					insideFooterButton(ev, resetX, actionButtonWidth)
 			end,
 			onmouseup=function(ev)
 				if ev.button ~= MouseButton.LEFT then return end
-				local resetX = math.max(0, footerWidth-actionButtonWidth)
-				local applyActivate = applyPressed and insideFooterButton(ev, 0)
-				local resetActivate = resetPressed and insideFooterButton(ev, resetX)
-				applyPressed, resetPressed = false, false
+				local eraserX = actionButtonWidth
+				local eraserRight = eraserX+eraserButtonWidth
+				local resetX = math.max(eraserRight, footerWidth-actionButtonWidth)
+				local applyActivate = applyPressed and insideFooterButton(ev, 0, actionButtonWidth)
+				local eraserActivate = eraserPressed and insideFooterButton(ev, eraserX, eraserButtonWidth)
+				local resetActivate = resetPressed and insideFooterButton(ev, resetX, actionButtonWidth)
+				applyPressed, eraserPressed, resetPressed = false, false, false
 
 				if applyActivate then
 					finishStroke()
 					requestedAction = "apply"
 					dlg:close()
+				elseif eraserActivate then
+					finishStroke()
+					if backgroundLayer then
+						app.alert{ title=tr("clone_stamp"), text=tr("eraser_needs_transparency") }
+					else
+						eraserOnly = not eraserOnly
+						invalidatePreview()
+						updateCanvasCursor()
+						refreshPreview()
+					end
 				elseif resetActivate then
 					resetToStart()
 				end
@@ -1434,7 +1564,7 @@ local function stampBrushDialog(prefs)
 
 	while not exiting do
 		-- Reset transient input, not the source, destination, view, or history.
-		applyPressed, resetPressed = false, false
+		applyPressed, eraserPressed, resetPressed = false, false, false
 		updateCanvasCursor()
 		dlg:show{ wait=true, bounds=bounds }
 		stopMagnifier(false)
