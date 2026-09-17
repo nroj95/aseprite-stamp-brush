@@ -1,6 +1,6 @@
 # Stamp Brush
 
-A clone-stamp brush extension for [Aseprite](https://www.aseprite.org/) — select a source area and paint with it like a stamp. Includes tiled canvas support, soft brushes, pan/zoom, selection masking, local undo/redo, transparent cloning, and RGB, grayscale, and indexed-color support.
+A clone-stamp and soft-eraser extension for [Aseprite](https://www.aseprite.org/) — sample and paint from another part of a cel, or switch the same soft brush into eraser-only mode. Includes tiled canvas support, pan/zoom, selection masking, local undo/redo, transparent cloning, and RGB, grayscale, and indexed-color support.
 
 <p align="center">
 <img src="https://img.shields.io/badge/Aseprite-1.3+-brightgreen" alt="Aseprite 1.3+">
@@ -17,11 +17,13 @@ https://github.com/user-attachments/assets/1e630c10-5291-4cc8-8258-739a48feb691
 - [How to use](#-how-to-use)
 - [Controls](#-controls)
 - [FAQ](#-faq)
+- [Credits](#-credits)
 
 ## 🎯 Features
 
 - **Clone-stamp brush** — sample from any part of the sprite canvas and paint it elsewhere.
 - **Soft brush** — adjustable radius (1–64), softness, opacity, and smooth stamp interpolation.
+- **Eraser-only mode** — switch the same brush engine into soft alpha erasing without choosing a clone source.
 - **RGB, grayscale, and indexed color** — cloning and previews work across all three supported Aseprite image modes.
 - **Transparent cloning** — transparent source pixels can erase destination pixels correctly.
 - **Alpha-aware blending** — opacity behaves correctly with partially transparent and fully transparent source pixels.
@@ -46,7 +48,7 @@ https://github.com/user-attachments/assets/1e630c10-5291-4cc8-8258-739a48feb691
 
 ## 💽 How to install
 
-1. Download the `.aseprite-extension` file from the [Releases](https://github.com/nklbdev/aseprite-stamp-brush/releases) page.
+1. Download the `.aseprite-extension` file from the [Releases](https://github.com/nroj95/aseprite-stamp-brush/releases) page.
 2. Double-click the file, or install via _Edit > Preferences > Extensions > Add Extension_.
 3. Restart Aseprite if necessary.
 4. The **Clone Stamp** command appears in the _Edit_ menu and includes **K** as its default shortcut.
@@ -71,8 +73,9 @@ Alternatively, clone this repository and copy the folder to your Aseprite extens
 6. **Left-click and drag** to lock the source-to-destination offset and paint with the clone stamp.
 7. **Right-click** again whenever you want to choose a new source point.
 8. Adjust **Tiled Mode**, **Radius**, **Opacity**, and **Softness** as needed.
-9. Click **Reset** at the bottom-right to jump back to the session start without discarding redo history, or click **Apply** at the bottom-left to commit immediately.
-10. Close with **Esc**, **K**, or the window close button to choose **Apply**, **Discard**, or **Continue Editing**.
+9. Click **Eraser Only** in the footer whenever you want the brush to erase instead of clone. The button changes to **Clone Stamp** while eraser mode is active.
+10. Click **Reset** at the bottom-right to jump back to the session start without discarding redo history, or click **Apply** at the bottom-left to commit immediately.
+11. Close with **Esc**, **K**, or the window close button to choose **Apply**, **Discard**, or **Continue Editing**.
 
 ## 🎮 Controls
 
@@ -81,7 +84,8 @@ Alternatively, clone this repository and copy the folder to your Aseprite extens
 | Action | Control |
 |---|---|
 | Set source point | Left click when no source exists, or Right click at any time |
-| Paint | Left click and drag |
+| Paint / erase | Left click and drag |
+| Toggle clone / eraser mode | Click **Eraser Only** or **Clone Stamp** in the footer |
 | Cancel current stroke | Right click while drawing |
 | Pan | Middle drag |
 | Pan | Space + left drag |
@@ -140,3 +144,11 @@ Yes. The translation is stored in:
 `locale/nn.lua`
 
 Only the translated strings need to be edited. The keys on the left side should remain unchanged. The extension automatically loads the file when Aseprite's language is `nn`.
+
+## 💛 Credits
+
+This project is based on the original [Aseprite Stamp Brush](https://github.com/nklbdev/aseprite-stamp-brush) by [nklbdev](https://github.com/nklbdev).
+
+The original project provided the foundation for this extension. This repository continues that work with substantial changes to the editing engine, correctness, controls, UI, workflow, localization, and additional tools.
+
+The original MIT copyright and license notice are preserved in [`LICENSE`](LICENSE).
