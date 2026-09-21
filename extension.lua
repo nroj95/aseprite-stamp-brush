@@ -75,12 +75,14 @@ local function normalizeLocale(value)
 if type(value) ~= "string" then return "en" end
 
 value = value:lower():gsub("_", "-")
+value = value:match("^%s*(.-)%s*$")
 
-if value:match("^nn") then
-	return "nn"
+-- Locale names become filenames, so accept language-tag characters only.
+if value == "" or not value:match("^[a-z][a-z0-9%-]*$") then
+        return "en"
 end
 
-return "en"
+return value
 end
 
 local function detectLocale()
@@ -99,22 +101,34 @@ local function loadLocale(plugin)
 local locale = detectLocale()
 if locale == "en" then return end
 
+local candidates = {}
+local baseLocale = locale:match("^([a-z]+)-")
+
+-- Load the base language first so a regional translation can override only
+-- the strings that differ from it.
+if baseLocale and baseLocale ~= locale then
+        candidates[#candidates+1] = baseLocale
+end
+
+candidates[#candidates+1] = locale
+
 local separator = package.config:sub(1, 1)
-local localePath =
-plugin.path .. separator ..
-"locale" .. separator ..
-locale .. ".lua"
 
-local ok, translations = pcall(dofile, localePath)
+for _, candidate in ipairs(candidates) do
+        local localePath =
+        plugin.path .. separator ..
+        "locale" .. separator ..
+        candidate .. ".lua"
 
-if not ok or type(translations) ~= "table" then
-return
-end
+        local ok, translations = pcall(dofile, localePath)
 
-for key, value in pairs(translations) do
-if type(key) == "string" and type(value) == "string" then
-uiText[key] = value
-end
+        if ok and type(translations) == "table" then
+                for key, value in pairs(translations) do
+                        if type(key) == "string" and type(value) == "string" then
+                                uiText[key] = value
+                        end
+                end
+        end
 end
 end
 

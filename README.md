@@ -73,7 +73,7 @@ Stamp Brush is a clone-stamp and soft-eraser extension for [Aseprite](https://ww
 - **Session validation** — Apply is rejected safely if the original sprite, cel, layer, canvas, or image changed underneath the session.
 - **Continue Editing** — closing after making changes offers Apply, Discard, or Continue Editing without losing the current clone-stamp session.
 - **Full-window workspace** — each new Clone Stamp session opens to the size of the Aseprite window.
-- **Nynorsk localization** — automatically loads `locale/nn.lua` when Aseprite is using the `nn` language. English remains the fallback.
+- **Translation support** — locale files can override the built-in English interface, with `locale/template.lua` as the canonical translation template and a complete Nynorsk example in `locale/examples/nn.lua`.
 
 ## 💽 How to install
 
@@ -84,7 +84,7 @@ Stamp Brush is a clone-stamp and soft-eraser extension for [Aseprite](https://ww
 
 The shortcut can be changed through _Edit > Keyboard Shortcuts_.
 
-If Aseprite is using Nynorsk (`nn`), the bundled Nynorsk translation is loaded automatically. Other languages currently fall back to English.
+English is built in as the fallback language. Additional translations can be added by copying `locale/template.lua` to a file matching Aseprite's language code.
 
 Alternatively, clone this repository and copy the folder to your Aseprite extensions directory:
 
@@ -138,13 +138,19 @@ This is intentional. A new session opens using the current Aseprite window dimen
 
 If you choose **Continue Editing**, the current dialog bounds are preserved for that session.
 
-### Can the Nynorsk translation be edited separately?
+### How can I add a translation?
 
-Yes. The translation is stored in:
+Copy:
 
-`locale/nn.lua`
+`locale/template.lua`
 
-Only the translated strings need to be edited. The keys on the left side should remain unchanged. The extension automatically loads the file when Aseprite's language is `nn`.
+Rename the copy to match Aseprite's language code, such as `de.lua`, `nb.lua`, or `pt-br.lua`, then translate the quoted text on the right side.
+
+Keep the keys on the left unchanged, and preserve format placeholders such as `%d`. Strings omitted from a translation file automatically fall back to English.
+
+A complete Nynorsk example is also available at `locale/examples/nn.lua`. It is provided as a reference and is not loaded automatically from the `examples` directory.
+
+For regional language codes, Stamp Brush loads the base language first and then applies regional overrides. For example, `pt-br` can inherit from `locale/pt.lua` and override individual strings in `locale/pt-br.lua`.
 
 ## 💛 Credits
 

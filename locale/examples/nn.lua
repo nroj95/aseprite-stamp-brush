@@ -1,4 +1,9 @@
--- Nynorsk translation.
+-- Complete Nynorsk translation example.
+-- This file is provided as a reference for translators and is not loaded
+-- automatically from this location.
+--
+-- To use it directly, copy it to ../nn.lua.
+--
 -- Established Aseprite terminology follows the official nn.ini translation.
 -- Clone Stamp-specific wording should be reviewed by the Nynorsk translator.
 
