@@ -136,6 +136,8 @@ local backgroundLayer, transparentIndex = false, 0
 local paletteColors, paletteSize, paletteCache, paletteCacheSize = nil, 0, nil, 0
 local brushMask, brushMaskR, brushMaskS, brushMaskO = nil, -1, -1, -1
 local alphaAcc, colorAcc = nil, nil
+local previewDirtyPixels = {}
+local strokeDirtyPixels = {}
 local dirtyX1, dirtyY1, dirtyX2, dirtyY2 = 0, 0, -1, -1
 local selMask, selBounds, selEdgeImg = nil, nil, nil
 
@@ -151,6 +153,8 @@ end
 local function resetAccum()
 	alphaAcc, colorAcc = nil, nil
 	dirtyX1, dirtyY1, dirtyX2, dirtyY2 = 0, 0, -1, -1
+    previewDirtyPixels = {}
+    strokeDirtyPixels = {}
 end
 
 local function disposeState()
@@ -286,7 +290,7 @@ local function initState(prefs)
 	spacing, tiledMode = 0.25, TILED_NONE
 	workImg = newSessionImage(sprite.width, sprite.height)
 	copyPixels(originalCel, workImg, celX, celY)
-	snapshot = Image(workImg)
+	snapshot = workImg
 	undoStack, undoPos = { [0] = Image(workImg) }, 0
 
 	local selection = sprite.selection
@@ -589,6 +593,8 @@ local function beginAccum()
 	colorAcc = nil
 	if not eraserOnly then colorAcc = newSessionImage(workImg.width, workImg.height) end
 	dirtyX1, dirtyY1, dirtyX2, dirtyY2 = workImg.width, workImg.height, -1, -1
+    previewDirtyPixels = {}
+    strokeDirtyPixels = {}
 end
 
 local function stampWithMask(cx, cy, offX, offY)
@@ -598,6 +604,9 @@ local function stampWithMask(cx, cy, offX, offY)
 		colorAcc:drawPixel(x, y, source)
 		dirtyX1, dirtyY1 = math.min(dirtyX1, x), math.min(dirtyY1, y)
 		dirtyX2, dirtyY2 = math.max(dirtyX2, x), math.max(dirtyY2, y)
+            local key = y*workImg.width+x
+            previewDirtyPixels[key] = true
+            strokeDirtyPixels[key] = true
 	end)
 end
 
@@ -607,6 +616,9 @@ local function eraseWithMask(cx, cy)
 		alphaAcc:drawPixel(x, y, coverage)
 		dirtyX1, dirtyY1 = math.min(dirtyX1, x), math.min(dirtyY1, y)
 		dirtyX2, dirtyY2 = math.max(dirtyX2, x), math.max(dirtyY2, y)
+            local key = y*workImg.width+x
+            previewDirtyPixels[key] = true
+            strokeDirtyPixels[key] = true
 	end)
 end
 
@@ -618,23 +630,34 @@ local function paintWithMask(cx, cy, offX, offY)
 	end
 end
 
-local function flushAccumTo(destination)
-	if not alphaAcc or dirtyX1 > dirtyX2 or dirtyY1 > dirtyY2 then return end
-	for y = dirtyY1, dirtyY2 do
-		for x = dirtyX1, dirtyX2 do
-			local coverage = alphaAcc:getPixel(x, y)
-			if coverage > 0 then
-				local current = destination:getPixel(x, y)
-				local result
-				if eraserOnly then
-					result = erasePixel(current, coverage)
-				else
-					result = blendPixel(colorAcc:getPixel(x, y), current, coverage)
-				end
-				destination:drawPixel(x, y, result)
-			end
-		end
-	end
+local function commitAccumToWork()
+    if not alphaAcc or next(strokeDirtyPixels) == nil then return false end
+
+    local changed = false
+
+    for key in pairs(strokeDirtyPixels) do
+        local x = key % workImg.width
+        local y = math.floor(key/workImg.width)
+        local coverage = alphaAcc:getPixel(x, y)
+        local current = workImg:getPixel(x, y)
+        local result
+
+        if eraserOnly then
+            result = erasePixel(current, coverage)
+        else
+            result = blendPixel(
+                colorAcc:getPixel(x, y),
+                current,
+                coverage)
+        end
+
+        if result ~= current then
+            workImg:drawPixel(x, y, result)
+            changed = true
+        end
+    end
+
+    return changed
 end
 
 local function paintSegment(x1, y1, x2, y2, offX, offY)
@@ -788,7 +811,7 @@ local function stampBrushDialog(prefs)
 	local destinationLocked = false
 	local mouseX, mouseY = -1, -1
 	local lastWX, lastWY, strokeOffsetBefore = nil, nil, nil
-	local previewImg, previewDisplay, baseDisplay, beforeDisplay, stampPreview = nil, nil, nil, nil, nil
+	local previewDisplay, baseDisplay, beforeDisplay, stampPreview = nil, nil, nil, nil
 	local hoverPixels, hoverDirty = {}, true
 	local stampPWX, stampPWY = nil, nil
 	local vScale, vOffX, vOffY, minScale = 1, 0, 0, 0.5
@@ -860,7 +883,7 @@ local function stampBrushDialog(prefs)
 	end
 
 	local function invalidatePreview()
-		previewImg, previewDisplay, baseDisplay, stampPreview = nil, nil, nil, nil
+		previewDisplay, baseDisplay, stampPreview = nil, nil, nil
 		hoverPixels, hoverDirty = {}, true
 		stampPWX, stampPWY = nil, nil
 	end
@@ -902,23 +925,40 @@ local function stampBrushDialog(prefs)
 	end
 
 	local function updatePreview()
-		stampPreview, hoverPixels = nil, {}
-		if not alphaAcc then return end
-		previewImg = Image(workImg)
-		flushAccumTo(previewImg)
-		previewDisplay = makeDisplayImage(previewImg)
+	        stampPreview, hoverPixels = nil, {}
+	        if not alphaAcc or next(previewDirtyPixels) == nil then return end
+
+	        -- Copy the full display only once per stroke. Mouse movement then
+	        -- patches only accumulator pixels whose coverage actually changed.
+	        if not baseDisplay then baseDisplay = makeDisplayImage(workImg) end
+	        if not previewDisplay then previewDisplay = Image(baseDisplay) end
+
+	        for key in pairs(previewDirtyPixels) do
+	                local x = key % workImg.width
+	                local y = math.floor(key/workImg.width)
+	                local coverage = alphaAcc:getPixel(x, y)
+
+	                local current = workImg:getPixel(x, y)
+	                local result
+	                if eraserOnly then
+	                        result = erasePixel(current, coverage)
+	                else
+	                        result = blendPixel(
+	                                colorAcc:getPixel(x, y),
+	                                current,
+	                                coverage)
+	                end
+
+	                local r, g, b, a = pixelRGBA(result)
+	                previewDisplay:drawPixel(
+	                        x, y,
+	                        app.pixelColor.rgba(r, g, b, a))
+	        end
+
+	        previewDirtyPixels = {}
 	end
 
-	local function strokeChanged()
-		if dirtyX1 > dirtyX2 or dirtyY1 > dirtyY2 then return false end
-		local previous = undoStack[undoPos]
-		for y = dirtyY1, dirtyY2 do
-			for x = dirtyX1, dirtyX2 do
-				if workImg:getPixel(x, y) ~= previous:getPixel(x, y) then return true end
-			end
-		end
-		return false
-	end
+
 
 	local function pushUndo()
 		-- Allocate first: a failed copy must not advance or truncate history.
@@ -937,14 +977,14 @@ local function stampBrushDialog(prefs)
 	end
 
 	local function finishStroke()
-		if not isDrawing then return end
-		flushAccumTo(workImg)
-		if strokeChanged() then pushUndo() else offset = strokeOffsetBefore end
-		snapshot = Image(workImg)
-		isDrawing = false
-		lastWX, lastWY, strokeOffsetBefore = nil, nil, nil
-		resetAccum()
-		invalidatePreview()
+	        if not isDrawing then return end
+	        local changed = commitAccumToWork()
+	        if changed then pushUndo() else offset = strokeOffsetBefore end
+	        snapshot = workImg
+	        isDrawing = false
+	        lastWX, lastWY, strokeOffsetBefore = nil, nil, nil
+	        resetAccum()
+	        invalidatePreview()
 	end
 
 	local function undo()
@@ -952,7 +992,7 @@ local function stampBrushDialog(prefs)
 		if undoPos <= 0 then return end
 		undoPos = undoPos-1
 		workImg = Image(undoStack[undoPos])
-		snapshot = Image(workImg)
+		snapshot = workImg
 		invalidatePreview()
 	end
 
@@ -960,7 +1000,7 @@ local function stampBrushDialog(prefs)
 		if isDrawing or undoPos >= #undoStack then return end
 		undoPos = undoPos+1
 		workImg = Image(undoStack[undoPos])
-		snapshot = Image(workImg)
+		snapshot = workImg
 		invalidatePreview()
 	end
 
@@ -975,9 +1015,8 @@ local function stampBrushDialog(prefs)
 		if undoPos > 0 then
 			-- Allocate first so a failed copy cannot move the history position.
 			local nextWork = Image(undoStack[0])
-			local nextSnapshot = Image(nextWork)
 			undoPos = 0
-			workImg, snapshot = nextWork, nextSnapshot
+			workImg, snapshot = nextWork, nextWork
 			invalidatePreview()
 		end
 		refreshPreview()
@@ -1310,7 +1349,7 @@ local function stampBrushDialog(prefs)
 					if x == nil then return end
 					sourcePoint, offset = Point(x, y), nil
 					destinationLocked = false
-					snapshot = Image(workImg)
+					snapshot = workImg
 					updateCanvasCursor()
 					refreshPreview()
 					return
@@ -1331,7 +1370,7 @@ local function stampBrushDialog(prefs)
 					if x == nil then return end
 					sourcePoint, offset = Point(x, y), nil
 					destinationLocked = false
-					snapshot = Image(workImg)
+					snapshot = workImg
 					updateCanvasCursor()
 					refreshPreview()
 					return
@@ -1655,7 +1694,7 @@ local function stampBrushDialog(prefs)
 			local err = callbackError
 			cancelStroke()
 			workImg = Image(undoStack[undoPos])
-			snapshot = Image(workImg)
+			snapshot = workImg
 			callbackError = nil
 			local choice = reportFailure(tr("changes_not_applied"), err,
 				{ tr("continue_editing"), tr("discard") })
