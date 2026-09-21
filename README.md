@@ -73,7 +73,7 @@ Stamp Brush is a clone-stamp and soft-eraser extension for [Aseprite](https://ww
 - **Session validation** — Apply is rejected safely if the original sprite, cel, layer, canvas, or image changed underneath the session.
 - **Continue Editing** — closing after making changes offers Apply, Discard, or Continue Editing without losing the current clone-stamp session.
 - **Full-window workspace** — each new Clone Stamp session opens to the size of the Aseprite window.
-- **Translation support** — locale files can override the built-in English interface, with `locale/template.lua` as the canonical translation template and a complete Nynorsk example in `locale/examples/nn.lua`.
+- **Translation support** — locale files can override the built-in English interface, with `locale/template.lua` as the canonical translation template and a bundled Nynorsk translation in `locale/nn.lua` that also serves as a complete example.
 
 ## 💽 How to install
 
@@ -148,7 +148,7 @@ Rename the copy to match Aseprite's language code, such as `de.lua`, `nb.lua`, o
 
 Keep the keys on the left unchanged, and preserve format placeholders such as `%d`. Strings omitted from a translation file automatically fall back to English.
 
-A complete Nynorsk example is also available at `locale/examples/nn.lua`. It is provided as a reference and is not loaded automatically from the `examples` directory.
+A complete Nynorsk translation is bundled at `locale/nn.lua`. It works automatically when Aseprite uses Nynorsk and also serves as a complete translation example.
 
 For regional language codes, Stamp Brush loads the base language first and then applies regional overrides. For example, `pt-br` can inherit from `locale/pt.lua` and override individual strings in `locale/pt-br.lua`.
 
