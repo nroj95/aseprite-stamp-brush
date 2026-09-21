@@ -24,6 +24,8 @@ softness = "Softness",
 
 apply = "Apply",
 reset = "Reset",
+before = "Before",
+after = "After",
 apply_changes = "Apply changes?",
 discard = "Discard",
 continue_editing = "Continue Editing",
@@ -776,16 +778,17 @@ local function stampBrushDialog(prefs)
 	local isDrawing, isPanning, spaceHeld = false, false, false
 	local panButton, requestedAction = nil, nil
 	local callbackError = nil
-	local applyPressed, eraserPressed, resetPressed = false, false, false
+	local applyPressed, eraserPressed, beforePressed, resetPressed = false, false, false, false
 	local footerWidth, footerHeight = 256, 20
 	local actionButtonWidth, eraserButtonWidth = 64, 96
+	local showBefore = false
 	local canvasWidth, canvasHeight = 0, 0
 	local magnifierActive = false
 	local magnifierScale, magnifierOffX, magnifierOffY = nil, nil, nil
 	local destinationLocked = false
 	local mouseX, mouseY = -1, -1
 	local lastWX, lastWY, strokeOffsetBefore = nil, nil, nil
-	local previewImg, previewDisplay, baseDisplay, stampPreview = nil, nil, nil, nil
+	local previewImg, previewDisplay, baseDisplay, beforeDisplay, stampPreview = nil, nil, nil, nil, nil
 	local hoverPixels, hoverDirty = {}, true
 	local stampPWX, stampPWY = nil, nil
 	local vScale, vOffX, vOffY, minScale = 1, 0, 0, 0.5
@@ -818,7 +821,8 @@ local function stampBrushDialog(prefs)
 		local x, y = workCoordinates(wx, wy)
 		if x == nil then return "—    X: —  Y: —" end
 
-		local pixel = workImg:getPixel(x, y)
+		local sampleImage = showBefore and undoStack[0] or workImg
+		local pixel = sampleImage:getPixel(x, y)
 
 		if celColorMode == ColorMode.RGB then
 			local r, g, b, a = pixelRGBA(pixel)
@@ -986,7 +990,7 @@ local function stampBrushDialog(prefs)
 			cursor = MouseCursor.GRABBING
 		elseif spaceHeld then
 			cursor = MouseCursor.GRAB
-		elseif eraserOnly or sourcePoint then
+		elseif not showBefore and (eraserOnly or sourcePoint) then
 			cursor = MouseCursor.NONE
 		end
 		dlg:modify{ id="canvas", mousecursor=cursor }
@@ -1119,7 +1123,8 @@ local function stampBrushDialog(prefs)
 				end
 				local s, ox, oy = vScale, vOffX, vOffY
 				local wImg, hImg = workImg.width, workImg.height
-				local showHover = not isDrawing and not isPanning and (eraserOnly or sourcePoint) and
+				local showHover = not showBefore and not isDrawing and not isPanning and
+					(eraserOnly or sourcePoint) and
 					mouseX >= 0 and mouseY >= 0 and mouseX < gc.width and mouseY < gc.height
 				if showHover then
 					local wx, wy = toWork(mouseX, mouseY)
@@ -1132,8 +1137,16 @@ local function stampBrushDialog(prefs)
 						end
 					end
 				end
-				if not baseDisplay then baseDisplay = makeDisplayImage(workImg) end
-				local src = previewDisplay or (showHover and stampPreview) or baseDisplay
+				local src
+				if showBefore then
+				        if not beforeDisplay then
+				                beforeDisplay = makeDisplayImage(undoStack[0])
+				        end
+				        src = beforeDisplay
+				else
+				        if not baseDisplay then baseDisplay = makeDisplayImage(workImg) end
+				        src = previewDisplay or (showHover and stampPreview) or baseDisplay
+				end
 
 				-- Draw the final result ONCE over the canvas's normal theme backing.
 				-- A transparent hover reveals that same backing; no SRC clearing or
@@ -1168,7 +1181,8 @@ local function stampBrushDialog(prefs)
 					gc:restore()
 				end
 
-				if mouseX >= 0 and mouseY >= 0 and (eraserOnly or sourcePoint) then
+				if not showBefore and mouseX >= 0 and mouseY >= 0 and
+				   (eraserOnly or sourcePoint) then
 					local wx, wy = toWork(mouseX, mouseY)
 					local sx, sy = nil, nil
 					if not eraserOnly then
@@ -1287,6 +1301,7 @@ local function stampBrushDialog(prefs)
 					return
 				end
 				if isPanning then return end
+				if showBefore then return end
 				local wx, wy = toWork(ev.x, ev.y)
 				if ev.button == MouseButton.RIGHT then
 					if isDrawing then cancelStroke(); refreshPreview(); return end
@@ -1391,13 +1406,17 @@ local function stampBrushDialog(prefs)
 					ev:stopPropagation()
 					dlg:close()
 				elseif (ev.metaKey or ev.ctrlKey) and ev.code == "KeyZ" then
-					ev:stopPropagation()
-					if ev.shiftKey then redo() else undo() end
-					dlg:repaint()
+				        ev:stopPropagation()
+				        if not showBefore then
+				                if ev.shiftKey then redo() else undo() end
+				                dlg:repaint()
+				        end
 				elseif (ev.metaKey or ev.ctrlKey) and ev.code == "KeyY" then
-					ev:stopPropagation()
-					redo()
-					dlg:repaint()
+				        ev:stopPropagation()
+				        if not showBefore then
+				                redo()
+				                dlg:repaint()
+				        end
 				end
 			end,
 			onkeyup=function(ev)
@@ -1412,93 +1431,137 @@ local function stampBrushDialog(prefs)
 			end })
 		:newrow()
 		:canvas(guardedWidget{ id="actionFooter",
-			width=256,
-			height=20,
-			autoscaling=true,
-			hexpand=true,
-			vexpand=false,
-			onpaint=function(ev)
-				local gc = ev.context
-				footerWidth, footerHeight = gc.width, gc.height
-				local eraserX = actionButtonWidth
-				local eraserRight = eraserX+eraserButtonWidth
-				local resetX = math.max(eraserRight, gc.width-actionButtonWidth)
+		        width=256,
+		        height=20,
+		        autoscaling=true,
+		        hexpand=true,
+		        vexpand=false,
+		        onpaint=function(ev)
+		                local gc = ev.context
+		                footerWidth, footerHeight = gc.width, gc.height
 
-				local applyBounds = Rectangle(0, 0, actionButtonWidth, gc.height)
-				gc:drawThemeRect("button_normal", applyBounds)
-				gc.color = app.theme.color.button_normal_text
-				local applySize = gc:measureText(tr("apply"))
-				gc:fillText(tr("apply"),
-					math.floor((actionButtonWidth-applySize.width)/2),
-					math.floor((gc.height-applySize.height)/2))
+		                local eraserX = actionButtonWidth
+		                local eraserRight = eraserX+eraserButtonWidth
+		                local beforeX = eraserRight
+		                local beforeRight = beforeX+actionButtonWidth
+		                local resetX = math.max(beforeRight, gc.width-actionButtonWidth)
 
-				local eraserBounds = Rectangle(eraserX, 0, eraserButtonWidth, gc.height)
-				gc:drawThemeRect("button_normal", eraserBounds)
-				gc.color = app.theme.color.button_normal_text
-				-- The toggle names the mode clicking it will switch to.
-				local eraserLabel = eraserOnly and tr("clone_stamp") or tr("eraser_only")
-				local eraserSize = gc:measureText(eraserLabel)
-				gc:fillText(eraserLabel,
-					eraserX+math.floor((eraserButtonWidth-eraserSize.width)/2),
-					math.floor((gc.height-eraserSize.height)/2))
+		                local applyBounds = Rectangle(0, 0, actionButtonWidth, gc.height)
+		                gc:drawThemeRect("button_normal", applyBounds)
+		                gc.color = app.theme.color.button_normal_text
+		                local applySize = gc:measureText(tr("apply"))
+		                gc:fillText(tr("apply"),
+		                        math.floor((actionButtonWidth-applySize.width)/2),
+		                        math.floor((gc.height-applySize.height)/2))
 
-				-- Keep the live pixel status centered between the actions.
-				local coordText = hoveredPixelText()
-				local coordSize = gc:measureText(coordText)
-				local coordWidth = resetX-eraserRight
-				if coordWidth >= coordSize.width then
-					gc.color = app.theme.color.button_normal_text
-					gc:fillText(coordText,
-						eraserRight+math.floor((coordWidth-coordSize.width)/2),
-						math.floor((gc.height-coordSize.height)/2))
-				end
+		                local eraserBounds = Rectangle(eraserX, 0, eraserButtonWidth, gc.height)
+		                gc:drawThemeRect("button_normal", eraserBounds)
+		                gc.color = app.theme.color.button_normal_text
+		                -- The toggle names the mode clicking it will switch to.
+		                local eraserLabel = eraserOnly and tr("clone_stamp") or tr("eraser_only")
+		                local eraserSize = gc:measureText(eraserLabel)
+		                gc:fillText(eraserLabel,
+		                        eraserX+math.floor((eraserButtonWidth-eraserSize.width)/2),
+		                        math.floor((gc.height-eraserSize.height)/2))
 
-				local resetBounds = Rectangle(resetX, 0, actionButtonWidth, gc.height)
-				gc:drawThemeRect("button_normal", resetBounds)
-				gc.color = app.theme.color.button_normal_text
-				local resetSize = gc:measureText(tr("reset"))
-				gc:fillText(tr("reset"),
-					resetX+math.floor((actionButtonWidth-resetSize.width)/2),
-					math.floor((gc.height-resetSize.height)/2))
-			end,
-			onmousedown=function(ev)
-				if ev.button ~= MouseButton.LEFT then return end
-				local eraserX = actionButtonWidth
-				local eraserRight = eraserX+eraserButtonWidth
-				local resetX = math.max(eraserRight, footerWidth-actionButtonWidth)
-				applyPressed = insideFooterButton(ev, 0, actionButtonWidth)
-				eraserPressed = not applyPressed and insideFooterButton(ev, eraserX, eraserButtonWidth)
-				resetPressed = not applyPressed and not eraserPressed and
-					insideFooterButton(ev, resetX, actionButtonWidth)
-			end,
-			onmouseup=function(ev)
-				if ev.button ~= MouseButton.LEFT then return end
-				local eraserX = actionButtonWidth
-				local eraserRight = eraserX+eraserButtonWidth
-				local resetX = math.max(eraserRight, footerWidth-actionButtonWidth)
-				local applyActivate = applyPressed and insideFooterButton(ev, 0, actionButtonWidth)
-				local eraserActivate = eraserPressed and insideFooterButton(ev, eraserX, eraserButtonWidth)
-				local resetActivate = resetPressed and insideFooterButton(ev, resetX, actionButtonWidth)
-				applyPressed, eraserPressed, resetPressed = false, false, false
+		                -- Match the mode toggle: name the view clicking will show.
+		                local beforeBounds = Rectangle(beforeX, 0, actionButtonWidth, gc.height)
+		                gc:drawThemeRect("button_normal", beforeBounds)
+		                gc.color = app.theme.color.button_normal_text
+		                local beforeLabel = showBefore and tr("after") or tr("before")
+		                local beforeSize = gc:measureText(beforeLabel)
+		                gc:fillText(beforeLabel,
+		                        beforeX+math.floor((actionButtonWidth-beforeSize.width)/2),
+		                        math.floor((gc.height-beforeSize.height)/2))
 
-				if applyActivate then
-					finishStroke()
-					requestedAction = "apply"
-					dlg:close()
-				elseif eraserActivate then
-					finishStroke()
-					if backgroundLayer then
-						app.alert{ title=tr("clone_stamp"), text=tr("eraser_needs_transparency") }
-					else
-						eraserOnly = not eraserOnly
-						invalidatePreview()
-						updateCanvasCursor()
-						refreshPreview()
-					end
-				elseif resetActivate then
-					resetToStart()
-				end
-			end
+		                -- Keep the live pixel status centered between the actions.
+		                local coordText = hoveredPixelText()
+		                local coordSize = gc:measureText(coordText)
+		                local coordWidth = resetX-beforeRight
+		                if coordWidth >= coordSize.width then
+		                        gc.color = app.theme.color.button_normal_text
+		                        gc:fillText(coordText,
+		                                beforeRight+math.floor((coordWidth-coordSize.width)/2),
+		                                math.floor((gc.height-coordSize.height)/2))
+		                end
+
+		                local resetBounds = Rectangle(resetX, 0, actionButtonWidth, gc.height)
+		                gc:drawThemeRect("button_normal", resetBounds)
+		                gc.color = app.theme.color.button_normal_text
+		                local resetSize = gc:measureText(tr("reset"))
+		                gc:fillText(tr("reset"),
+		                        resetX+math.floor((actionButtonWidth-resetSize.width)/2),
+		                        math.floor((gc.height-resetSize.height)/2))
+		        end,
+		        onmousedown=function(ev)
+		                if ev.button ~= MouseButton.LEFT then return end
+
+		                local eraserX = actionButtonWidth
+		                local eraserRight = eraserX+eraserButtonWidth
+		                local beforeX = eraserRight
+		                local beforeRight = beforeX+actionButtonWidth
+		                local resetX = math.max(beforeRight, footerWidth-actionButtonWidth)
+
+		                applyPressed = insideFooterButton(ev, 0, actionButtonWidth)
+		                eraserPressed = not applyPressed and
+		                        insideFooterButton(ev, eraserX, eraserButtonWidth)
+		                beforePressed = not applyPressed and not eraserPressed and
+		                        insideFooterButton(ev, beforeX, actionButtonWidth)
+		                resetPressed = not applyPressed and not eraserPressed and
+		                        not beforePressed and
+		                        insideFooterButton(ev, resetX, actionButtonWidth)
+		        end,
+		        onmouseup=function(ev)
+		                if ev.button ~= MouseButton.LEFT then return end
+
+		                local eraserX = actionButtonWidth
+		                local eraserRight = eraserX+eraserButtonWidth
+		                local beforeX = eraserRight
+		                local beforeRight = beforeX+actionButtonWidth
+		                local resetX = math.max(beforeRight, footerWidth-actionButtonWidth)
+
+		                local applyActivate = applyPressed and
+		                        insideFooterButton(ev, 0, actionButtonWidth)
+		                local eraserActivate = eraserPressed and
+		                        insideFooterButton(ev, eraserX, eraserButtonWidth)
+		                local beforeActivate = beforePressed and
+		                        insideFooterButton(ev, beforeX, actionButtonWidth)
+		                local resetActivate = resetPressed and
+		                        insideFooterButton(ev, resetX, actionButtonWidth)
+
+		                applyPressed, eraserPressed, beforePressed, resetPressed =
+		                        false, false, false, false
+
+		                if beforeActivate then
+		                        finishStroke()
+		                        showBefore = not showBefore
+		                        invalidatePreview()
+		                        updateCanvasCursor()
+		                        refreshPreview()
+		                elseif showBefore then
+		                        -- Comparison mode is view-only.
+		                        return
+		                elseif applyActivate then
+		                        finishStroke()
+		                        requestedAction = "apply"
+		                        dlg:close()
+		                elseif eraserActivate then
+		                        finishStroke()
+		                        if backgroundLayer then
+		                                app.alert{
+		                                        title=tr("clone_stamp"),
+		                                        text=tr("eraser_needs_transparency")
+		                                }
+		                        else
+		                                eraserOnly = not eraserOnly
+		                                invalidatePreview()
+		                                updateCanvasCursor()
+		                                refreshPreview()
+		                        end
+		                elseif resetActivate then
+		                        resetToStart()
+		                end
+		        end
 		})
 
 	-- Reopen the same dialog iteratively. Recursive onclose/show calls retain
@@ -1564,7 +1627,8 @@ local function stampBrushDialog(prefs)
 
 	while not exiting do
 		-- Reset transient input, not the source, destination, view, or history.
-		applyPressed, eraserPressed, resetPressed = false, false, false
+		applyPressed, eraserPressed, beforePressed, resetPressed =
+		        false, false, false, false
 		updateCanvasCursor()
 		dlg:show{ wait=true, bounds=bounds }
 		stopMagnifier(false)

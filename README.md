@@ -26,6 +26,7 @@ Stamp Brush is a clone-stamp and soft-eraser extension for [Aseprite](https://ww
 | Set source point | Left click when no source exists, or Right click at any time |
 | Paint / erase | Left click and drag |
 | Toggle clone / eraser mode | Click **Eraser Only** or **Clone Stamp** in the footer |
+| Compare before / after | Click **Before** to view the untouched session image; click **After** to return |
 | Cancel current stroke | Right click while drawing |
 | Pan | Middle drag |
 | Pan | Space + left drag |
@@ -64,6 +65,7 @@ Stamp Brush is a clone-stamp and soft-eraser extension for [Aseprite](https://ww
 - **Distinct source/destination markers** — both rings use a dark outer stroke; the source keeps a light-gray inner stroke while the destination uses warm gold.
 - **Source/destination alignment guide** — after choosing a source, a two-tone line connects it to the moving destination ring until the first destination is chosen. Its inner stroke turns green when the source and destination are exactly horizontally or vertically aligned.
 - **Local undo/redo** — undo and redo clone-stamp strokes before applying them to the document.
+- **Before/after comparison** — switch between the untouched session image and the current edited result without changing either state. Before view remains available for pan, zoom, magnification, and pixel inspection while editing actions are blocked.
 - **Instant Reset** — jump back to the session's starting image in one click while keeping the full redo history available.
 - **No-op stroke detection** — strokes that do not change any pixels are not added to the local history.
 - **Safe Apply** — all session changes are committed in one native Aseprite transaction so the final Apply can be undone/redone normally in Aseprite.
@@ -101,8 +103,9 @@ Alternatively, clone this repository and copy the folder to your Aseprite extens
 7. **Right-click** again whenever you want to choose a new source point.
 8. Adjust **Tiled Mode**, **Radius**, **Opacity**, and **Softness** as needed.
 9. Click **Eraser Only** in the footer whenever you want the brush to erase instead of clone. The button changes to **Clone Stamp** while eraser mode is active.
-10. Click **Reset** at the bottom-right to jump back to the session start without discarding redo history, or click **Apply** at the bottom-left to commit immediately.
-11. Close with **Esc**, **K**, or the window close button to choose **Apply**, **Discard**, or **Continue Editing**.
+10. Click **Before** to compare against the untouched session image. Click **After** to return to the current edited result.
+11. Click **Reset** at the bottom-right to jump back to the session start without discarding redo history, or click **Apply** at the bottom-left to commit immediately.
+12. Close with **Esc**, **K**, or the window close button to choose **Apply**, **Discard**, or **Continue Editing**.
 
 ## ❓ FAQ
 
