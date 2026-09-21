@@ -1,6 +1,6 @@
 -- Clone Stamp Extension for Aseprite
 -- Custom tiled canvas, pan/zoom, smoothstep brush, and max-coverage strokes.
--- workImg, snapshot, and undo images all use sprite-canvas coordinates.
+-- workImg and snapshot use sprite-canvas coordinates; undo history stores pixel deltas.
 -- Apply replaces a detached image in one native undoable transaction.
 -- API: Aseprite >= 1.3 (Dialog:canvas support required).
 
@@ -15,7 +15,7 @@ local TILED_NONE, TILED_X, TILED_Y, TILED_BOTH = 0, 1, 2, 3
 local uiText = {
 clone_stamp = "Clone Stamp",
 eraser_only = "Eraser Only",
-eraser_needs_transparency = "Eraser Only requires a non-background layer with transparency.",
+eraser_needs_transparency = "Eraser Only requires a layer that supports transparency. Convert the Background layer to a normal layer first.",
 
 tiled_mode = "Tiled Mode",
 radius = "Radius",
@@ -152,7 +152,6 @@ local brushMask, brushMaskR, brushMaskS, brushMaskO = nil, -1, -1, -1
 local alphaAcc, colorAcc = nil, nil
 local previewDirtyPixels = {}
 local strokeDirtyPixels = {}
-local dirtyX1, dirtyY1, dirtyX2, dirtyY2 = 0, 0, -1, -1
 local selMask, selBounds, selEdgeImg = nil, nil, nil
 
 local function boundedNumber(value, fallback, minimum, maximum, integer)
@@ -166,7 +165,6 @@ end
 
 local function resetAccum()
 	alphaAcc, colorAcc = nil, nil
-	dirtyX1, dirtyY1, dirtyX2, dirtyY2 = 0, 0, -1, -1
     previewDirtyPixels = {}
     strokeDirtyPixels = {}
 end
@@ -508,10 +506,8 @@ local function validateSession()
 	return nil
 end
 
-local function applyToCel()
+local function applyToCel(x1, y1, x2, y2)
 	local activeCel = sessionLayer:cel(sessionFrame)
-	local x1, y1, x2, y2 = getWorkDirtyBounds()
-	if x1 > x2 or y1 > y2 then return end
 	local left, top = math.min(celX, x1), math.min(celY, y1)
 	local right = math.max(celX + originalCel.width - 1, x2)
 	local bottom = math.max(celY + originalCel.height - 1, y2)
@@ -606,7 +602,6 @@ local function beginAccum()
 	alphaAcc:clear()
 	colorAcc = nil
 	if not eraserOnly then colorAcc = newSessionImage(workImg.width, workImg.height) end
-	dirtyX1, dirtyY1, dirtyX2, dirtyY2 = workImg.width, workImg.height, -1, -1
     previewDirtyPixels = {}
     strokeDirtyPixels = {}
 end
@@ -616,8 +611,6 @@ local function stampWithMask(cx, cy, offX, offY)
 		if alphaAcc:getPixel(x, y) >= coverage then return end
 		alphaAcc:drawPixel(x, y, coverage)
 		colorAcc:drawPixel(x, y, source)
-		dirtyX1, dirtyY1 = math.min(dirtyX1, x), math.min(dirtyY1, y)
-		dirtyX2, dirtyY2 = math.max(dirtyX2, x), math.max(dirtyY2, y)
             local key = y*workImg.width+x
             previewDirtyPixels[key] = true
             strokeDirtyPixels[key] = true
@@ -628,8 +621,6 @@ local function eraseWithMask(cx, cy)
 	forMaskPixels(cx, cy, function(x, y, coverage)
 		if alphaAcc:getPixel(x, y) >= coverage then return end
 		alphaAcc:drawPixel(x, y, coverage)
-		dirtyX1, dirtyY1 = math.min(dirtyX1, x), math.min(dirtyY1, y)
-		dirtyX2, dirtyY2 = math.max(dirtyX2, x), math.max(dirtyY2, y)
             local key = y*workImg.width+x
             previewDirtyPixels[key] = true
             strokeDirtyPixels[key] = true
@@ -1001,19 +992,20 @@ local function stampBrushDialog(prefs)
 	                else
 	                        baseDisplay = makeDisplayImage(workImg)
 	                end
+	        end
 
-	                -- stampPreview may still contain the hover footprint that existed
-	                -- before drawing began. Restore that footprint and the committed
-	                -- stroke directly from the new base instead of cloning the canvas.
-	                if stampPreview then
-	                        for key in pairs(hoverPixels) do
-	                                local x = key % workImg.width
-	                                local y = math.floor(key/workImg.width)
-	                                stampPreview:drawPixel(
-	                                        x, y,
-	                                        baseDisplay:getPixel(x, y))
-	                        end
+	        -- Restore the retained hover footprint even when the stroke changed
+	        -- no pixels. Otherwise stale hover pixels can survive a no-op stroke.
+	        if stampPreview and baseDisplay then
+	                for key in pairs(hoverPixels) do
+	                        local x = key % workImg.width
+	                        local y = math.floor(key/workImg.width)
+	                        stampPreview:drawPixel(
+	                                x, y,
+	                                baseDisplay:getPixel(x, y))
+	                end
 
+	                if delta then
 	                        for i = 1, #delta, 4 do
 	                                local x, y = delta[i], delta[i+1]
 	                                stampPreview:drawPixel(
@@ -1652,7 +1644,6 @@ local function stampBrushDialog(prefs)
 		                if beforeActivate then
 		                        finishStroke()
 		                        showBefore = not showBefore
-		                        invalidatePreview()
 		                        updateCanvasCursor()
 		                        refreshPreview()
 		                elseif showBefore then
@@ -1683,29 +1674,38 @@ local function stampBrushDialog(prefs)
 
 	-- Reopen the same dialog iteratively. Recursive onclose/show calls retain
 	-- old canvases and can strand the session when the confirmation is closed.
-	local function tryApply()
-		local ok, validationError = xpcall(function()
-			local x1, y1, x2, y2 = getWorkDirtyBounds()
-			if x1 > x2 or y1 > y2 then return nil end
+	local function tryApply(x1, y1, x2, y2)
+	        local ok, validationError = xpcall(function()
+	                if x1 == nil then
+	                        x1, y1, x2, y2 = getWorkDirtyBounds()
+	                end
 
-			-- Expected rejection is a return value, never a transaction error.
-			local problem = validateSession()
-			if problem then return problem end
-			app.transaction(tr("clone_stamp"), applyToCel)
-		end, errorTraceback)
-		if not ok then
-			reportFailure(tr("changes_not_applied"), validationError)
-			return false
-		end
-		if validationError then
-			app.alert{
-				title=tr("clone_stamp"),
-				text=validationError
-			}
-			return false
-		end
-		app.refresh()
-		return true
+	                if x1 > x2 or y1 > y2 then return nil end
+
+	                -- Expected rejection is a return value, never a transaction error.
+	                local problem = validateSession()
+	                if problem then return problem end
+
+	                app.transaction(tr("clone_stamp"), function()
+	                        applyToCel(x1, y1, x2, y2)
+	                end)
+	        end, errorTraceback)
+
+	        if not ok then
+	                reportFailure(tr("changes_not_applied"), validationError)
+	                return false
+	        end
+
+	        if validationError then
+	                app.alert{
+	                        title=tr("clone_stamp"),
+	                        text=validationError
+	                }
+	                return false
+	        end
+
+	        app.refresh()
+	        return true
 	end
 
 	local function initialDialogBounds()
@@ -1793,7 +1793,7 @@ local function stampBrushDialog(prefs)
 			}
 
 			if choice == 1 then
-				if tryApply() then break end
+				if tryApply(x1, y1, x2, y2) then break end
 			elseif choice == 2 then
 				break
 			end

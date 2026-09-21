@@ -16,7 +16,7 @@ return {
     clone_stamp = "Clone Stamp",
     eraser_only = "Eraser Only",
     eraser_needs_transparency =
-        "Eraser Only requires a non-background layer with transparency.",
+        "Eraser Only requires a layer that supports transparency. Convert the Background layer to a normal layer first.",
 
     tiled_mode = "Tiled Mode",
     radius = "Radius",

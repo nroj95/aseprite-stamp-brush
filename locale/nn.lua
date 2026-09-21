@@ -11,7 +11,7 @@ return {
     clone_stamp = "Klonestempel",
     eraser_only = "Berre viskelêr",
     eraser_needs_transparency =
-        "Berre viskelêr krev eit lag som ikkje er eit bakgrunnslag, og som har gjennomsikt.",
+        "Berre viskelêr krev eit lag som støttar gjennomsikt. Gjer bakgrunnslaget om til eit vanleg lag først.",
 
     tiled_mode = "Tessellert modus",
     radius = "Radius",
