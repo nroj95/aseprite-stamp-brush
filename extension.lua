@@ -631,9 +631,9 @@ local function paintWithMask(cx, cy, offX, offY)
 end
 
 local function commitAccumToWork()
-    if not alphaAcc or next(strokeDirtyPixels) == nil then return false end
+    if not alphaAcc or next(strokeDirtyPixels) == nil then return nil end
 
-    local changed = false
+    local delta = {}
 
     for key in pairs(strokeDirtyPixels) do
         local x = key % workImg.width
@@ -652,12 +652,17 @@ local function commitAccumToWork()
         end
 
         if result ~= current then
+            local index = #delta+1
+            delta[index] = x
+            delta[index+1] = y
+            delta[index+2] = current
+            delta[index+3] = result
             workImg:drawPixel(x, y, result)
-            changed = true
         end
     end
 
-    return changed
+    if #delta == 0 then return nil end
+    return delta
 end
 
 local function paintSegment(x1, y1, x2, y2, offX, offY)
@@ -925,7 +930,6 @@ local function stampBrushDialog(prefs)
 	end
 
 	local function updatePreview()
-	        stampPreview, hoverPixels = nil, {}
 	        if not alphaAcc or next(previewDirtyPixels) == nil then return end
 
 	        -- Copy the full display only once per stroke. Mouse movement then
@@ -960,12 +964,71 @@ local function stampBrushDialog(prefs)
 
 
 
-	local function pushUndo()
-		-- Allocate first: a failed copy must not advance or truncate history.
-		local nextImage = Image(workImg)
-		local nextPos = undoPos+1
-		for i = nextPos, #undoStack do undoStack[i] = nil end
-		undoStack[nextPos], undoPos = nextImage, nextPos
+	local function patchDisplayDelta(display, delta)
+	        if not display or not delta then return end
+	        for i = 1, #delta, 4 do
+	                local r, g, b, a = pixelRGBA(delta[i+3])
+	                display:drawPixel(
+	                        delta[i],
+	                        delta[i+1],
+	                        app.pixelColor.rgba(r, g, b, a))
+	        end
+	end
+
+	local function finishStrokePreview(delta)
+	        if delta then
+	                -- previewDisplay already contains almost the entire final stroke.
+	                -- Patch the mouse-up tail, then promote it to the new base display.
+	                if previewDisplay then
+	                        patchDisplayDelta(previewDisplay, delta)
+	                        baseDisplay = previewDisplay
+	                elseif baseDisplay then
+	                        patchDisplayDelta(baseDisplay, delta)
+	                else
+	                        baseDisplay = makeDisplayImage(workImg)
+	                end
+
+	                -- stampPreview may still contain the hover footprint that existed
+	                -- before drawing began. Restore that footprint and the committed
+	                -- stroke directly from the new base instead of cloning the canvas.
+	                if stampPreview then
+	                        for key in pairs(hoverPixels) do
+	                                local x = key % workImg.width
+	                                local y = math.floor(key/workImg.width)
+	                                stampPreview:drawPixel(
+	                                        x, y,
+	                                        baseDisplay:getPixel(x, y))
+	                        end
+
+	                        for i = 1, #delta, 4 do
+	                                local x, y = delta[i], delta[i+1]
+	                                stampPreview:drawPixel(
+	                                        x, y,
+	                                        baseDisplay:getPixel(x, y))
+	                        end
+	                end
+	        end
+
+	        previewDisplay = nil
+	        hoverPixels = {}
+	        hoverDirty = true
+	        stampPWX, stampPWY = nil, nil
+	end
+
+	local function applyHistoryDelta(destination, delta, useAfter)
+	        local valueOffset = useAfter and 3 or 2
+	        for i = 1, #delta, 4 do
+	                destination:drawPixel(
+	                        delta[i],
+	                        delta[i+1],
+	                        delta[i+valueOffset])
+	        end
+	end
+
+	local function pushUndo(delta)
+	        local nextPos = undoPos+1
+	        for i = nextPos, #undoStack do undoStack[i] = nil end
+	        undoStack[nextPos], undoPos = delta, nextPos
 	end
 
 	local function cancelStroke()
@@ -978,30 +1041,31 @@ local function stampBrushDialog(prefs)
 
 	local function finishStroke()
 	        if not isDrawing then return end
-	        local changed = commitAccumToWork()
-	        if changed then pushUndo() else offset = strokeOffsetBefore end
+	        local delta = commitAccumToWork()
+	        if delta then pushUndo(delta) else offset = strokeOffsetBefore end
 	        snapshot = workImg
 	        isDrawing = false
 	        lastWX, lastWY, strokeOffsetBefore = nil, nil, nil
+	        finishStrokePreview(delta)
 	        resetAccum()
-	        invalidatePreview()
 	end
 
 	local function undo()
-		if isDrawing then cancelStroke(); return end
-		if undoPos <= 0 then return end
-		undoPos = undoPos-1
-		workImg = Image(undoStack[undoPos])
-		snapshot = workImg
-		invalidatePreview()
+	        if isDrawing then cancelStroke(); return end
+	        if undoPos <= 0 then return end
+	        applyHistoryDelta(workImg, undoStack[undoPos], false)
+	        undoPos = undoPos-1
+	        snapshot = workImg
+	        invalidatePreview()
 	end
 
 	local function redo()
-		if isDrawing or undoPos >= #undoStack then return end
-		undoPos = undoPos+1
-		workImg = Image(undoStack[undoPos])
-		snapshot = workImg
-		invalidatePreview()
+	        if isDrawing or undoPos >= #undoStack then return end
+	        local nextPos = undoPos+1
+	        applyHistoryDelta(workImg, undoStack[nextPos], true)
+	        undoPos = nextPos
+	        snapshot = workImg
+	        invalidatePreview()
 	end
 
 	local function refreshPreview()
@@ -1693,7 +1757,10 @@ local function stampBrushDialog(prefs)
 			-- recent completed undo snapshot. Never apply partially failed work.
 			local err = callbackError
 			cancelStroke()
-			workImg = Image(undoStack[undoPos])
+			workImg = Image(undoStack[0])
+			for historyPos = 1, undoPos do
+			        applyHistoryDelta(workImg, undoStack[historyPos], true)
+			end
 			snapshot = workImg
 			callbackError = nil
 			local choice = reportFailure(tr("changes_not_applied"), err,
