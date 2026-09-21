@@ -152,7 +152,7 @@ local brushMask, brushMaskR, brushMaskS, brushMaskO = nil, -1, -1, -1
 local alphaAcc, colorAcc = nil, nil
 local previewDirtyPixels = {}
 local strokeDirtyPixels = {}
-local selMask, selBounds, selEdgeImg = nil, nil, nil
+local selMask, selBounds, selEdges = nil, nil, nil
 
 local function boundedNumber(value, fallback, minimum, maximum, integer)
 	if type(value) ~= "number" or value ~= value or value == math.huge or value == -math.huge then
@@ -179,7 +179,7 @@ local function disposeState()
 	backgroundLayer, transparentIndex = false, 0
 	paletteColors, paletteSize, paletteCache, paletteCacheSize = nil, 0, nil, 0
 	brushMask, brushMaskR, brushMaskS, brushMaskO = nil, -1, -1, -1
-	selMask, selBounds, selEdgeImg = nil, nil, nil
+	selMask, selBounds, selEdges = nil, nil, nil
 	resetAccum()
 end
 
@@ -307,31 +307,105 @@ local function initState(prefs)
 
 	local selection = sprite.selection
 	if selection and not selection.isEmpty then
-		selMask = Image(sprite.width, sprite.height, ColorMode.GRAYSCALE)
-		selMask:clear()
-		selEdgeImg = Image(sprite.width, sprite.height, ColorMode.GRAYSCALE)
-		selEdgeImg:clear()
-		selBounds = selection.bounds
-		local x1, y1 = math.max(0, selBounds.x), math.max(0, selBounds.y)
-		local x2 = math.min(sprite.width - 1, selBounds.x + selBounds.width - 1)
-		local y2 = math.min(sprite.height - 1, selBounds.y + selBounds.height - 1)
-		for y = y1, y2 do
-			for x = x1, x2 do
-				if selection:contains(x, y) then selMask:drawPixel(x, y, 255) end
-			end
-		end
-		for y = y1, y2 do
-			for x = x1, x2 do
-				if selMask:getPixel(x, y) ~= 0 then
-					local mask = 0
-					if y == 0 or selMask:getPixel(x, y - 1) == 0 then mask = mask + 1 end
-					if x == sprite.width - 1 or selMask:getPixel(x + 1, y) == 0 then mask = mask + 2 end
-					if y == sprite.height - 1 or selMask:getPixel(x, y + 1) == 0 then mask = mask + 4 end
-					if x == 0 or selMask:getPixel(x - 1, y) == 0 then mask = mask + 8 end
-					selEdgeImg:drawPixel(x, y, mask)
-				end
-			end
-		end
+	        selMask = Image(sprite.width, sprite.height, ColorMode.GRAYSCALE)
+	        selMask:clear()
+	        selEdges = {}
+	        selBounds = selection.bounds
+
+	        local x1 = math.max(0, selBounds.x)
+	        local y1 = math.max(0, selBounds.y)
+	        local x2 = math.min(
+	                sprite.width-1,
+	                selBounds.x+selBounds.width-1)
+	        local y2 = math.min(
+	                sprite.height-1,
+	                selBounds.y+selBounds.height-1)
+
+	        for y = y1, y2 do
+	                for x = x1, x2 do
+	                        if selection:contains(x, y) then
+	                                selMask:drawPixel(x, y, 255)
+	                        end
+	                end
+	        end
+
+	        local function addSelectionEdge(ax, ay, bx, by)
+	                local index = #selEdges+1
+	                selEdges[index] = ax
+	                selEdges[index+1] = ay
+	                selEdges[index+2] = bx
+	                selEdges[index+3] = by
+	        end
+
+	        -- Merge neighboring top/bottom edges into horizontal runs.
+	        for y = y1, y2 do
+	                local topStart, bottomStart = nil, nil
+
+	                for x = x1, x2 do
+	                        local selected = selMask:getPixel(x, y) ~= 0
+	                        local topEdge = selected and
+	                                (y == 0 or selMask:getPixel(x, y-1) == 0)
+	                        local bottomEdge = selected and
+	                                (y == sprite.height-1 or
+	                                 selMask:getPixel(x, y+1) == 0)
+
+	                        if topEdge then
+	                                if topStart == nil then topStart = x end
+	                        elseif topStart ~= nil then
+	                                addSelectionEdge(topStart, y, x, y)
+	                                topStart = nil
+	                        end
+
+	                        if bottomEdge then
+	                                if bottomStart == nil then bottomStart = x end
+	                        elseif bottomStart ~= nil then
+	                                addSelectionEdge(bottomStart, y+1, x, y+1)
+	                                bottomStart = nil
+	                        end
+	                end
+
+	                if topStart ~= nil then
+	                        addSelectionEdge(topStart, y, x2+1, y)
+	                end
+	                if bottomStart ~= nil then
+	                        addSelectionEdge(bottomStart, y+1, x2+1, y+1)
+	                end
+	        end
+
+	        -- Merge neighboring left/right edges into vertical runs.
+	        for x = x1, x2 do
+	                local leftStart, rightStart = nil, nil
+
+	                for y = y1, y2 do
+	                        local selected = selMask:getPixel(x, y) ~= 0
+	                        local leftEdge = selected and
+	                                (x == 0 or selMask:getPixel(x-1, y) == 0)
+	                        local rightEdge = selected and
+	                                (x == sprite.width-1 or
+	                                 selMask:getPixel(x+1, y) == 0)
+
+	                        if leftEdge then
+	                                if leftStart == nil then leftStart = y end
+	                        elseif leftStart ~= nil then
+	                                addSelectionEdge(x, leftStart, x, y)
+	                                leftStart = nil
+	                        end
+
+	                        if rightEdge then
+	                                if rightStart == nil then rightStart = y end
+	                        elseif rightStart ~= nil then
+	                                addSelectionEdge(x+1, rightStart, x+1, y)
+	                                rightStart = nil
+	                        end
+	                end
+
+	                if leftStart ~= nil then
+	                        addSelectionEdge(x, leftStart, x, y2+1)
+	                end
+	                if rightStart ~= nil then
+	                        addSelectionEdge(x+1, rightStart, x+1, y2+1)
+	                end
+	        end
 	end
 	return true
 end
@@ -806,6 +880,14 @@ local function reportFailure(message, err, buttons)
 end
 
 local function stampBrushDialog(prefs)
+local panDisplayCache = nil
+local panDisplaySourceId = nil
+local panDisplaySourceVersion = nil
+local panDisplayScale = nil
+local panDisplayWidth, panDisplayHeight = 0, 0
+
+-- Avoid retaining enormous pre-scaled images at extreme zoom levels.
+local panDisplayCacheMaxPixels = 16000000
 	local ready, reason = initState(prefs)
 	if not ready then disposeState(); app.alert(reason); return end
 	local isDrawing, isPanning, spaceHeld = false, false, false
@@ -1260,12 +1342,81 @@ local function stampBrushDialog(prefs)
 				-- Draw the final result ONCE over the canvas's normal theme backing.
 				-- A transparent hover reveals that same backing; no SRC clearing or
 				-- extra checkerboard/control is needed, and tile wrapping matches paint.
-				for ty = 0, countY-1 do
-					for tx = 0, countX-1 do
-						gc:drawImage(src, 0, 0, wImg, hImg,
-							math.floor(tx*wImg*s+ox+0.5), math.floor(ty*hImg*s+oy+0.5),
-							math.max(1, math.floor(wImg*s+0.5)), math.max(1, math.floor(hImg*s+0.5)))
-					end
+				if isPanning then
+				        local scaledWidth =
+				                math.max(1, math.floor(wImg*s+0.5))
+				        local scaledHeight =
+				                math.max(1, math.floor(hImg*s+0.5))
+
+				        -- At 1:1 there is nothing to pre-scale. Use the inexpensive
+				        -- original-size draw directly.
+				        if scaledWidth == wImg and scaledHeight == hImg then
+				                for ty = 0, countY-1 do
+				                        for tx = 0, countX-1 do
+				                                gc:drawImage(
+				                                        src,
+				                                        math.floor(tx*wImg*s+ox+0.5),
+				                                        math.floor(ty*hImg*s+oy+0.5))
+				                        end
+				                end
+				        elseif scaledWidth*scaledHeight <= panDisplayCacheMaxPixels then
+				                local sourceId = src.id
+				                local sourceVersion = src.version
+
+				                -- Rebuild only when the pixels or zoom actually changed.
+				                if panDisplayCache == nil or
+				                   panDisplaySourceId ~= sourceId or
+				                   panDisplaySourceVersion ~= sourceVersion or
+				                   panDisplayScale ~= s or
+				                   panDisplayWidth ~= scaledWidth or
+				                   panDisplayHeight ~= scaledHeight then
+				                        panDisplayCache = Image(src)
+				                        panDisplayCache:resize(
+				                                scaledWidth,
+				                                scaledHeight)
+
+				                        panDisplaySourceId = sourceId
+				                        panDisplaySourceVersion = sourceVersion
+				                        panDisplayScale = s
+				                        panDisplayWidth = scaledWidth
+				                        panDisplayHeight = scaledHeight
+				                end
+
+				                -- Moving an already-scaled bitmap is much cheaper than asking
+				                -- GraphicsContext to rescale the full image every mouse event.
+				                for ty = 0, countY-1 do
+				                        for tx = 0, countX-1 do
+				                                gc:drawImage(
+				                                        panDisplayCache,
+				                                        math.floor(tx*wImg*s+ox+0.5),
+				                                        math.floor(ty*hImg*s+oy+0.5))
+				                        end
+				                end
+				        else
+				                -- Fall back to direct scaling rather than allocating a huge
+				                -- cached bitmap at very high zoom levels.
+				                for ty = 0, countY-1 do
+				                        for tx = 0, countX-1 do
+				                                gc:drawImage(
+				                                        src, 0, 0, wImg, hImg,
+				                                        math.floor(tx*wImg*s+ox+0.5),
+				                                        math.floor(ty*hImg*s+oy+0.5),
+				                                        scaledWidth,
+				                                        scaledHeight)
+				                        end
+				                end
+				        end
+				else
+				        for ty = 0, countY-1 do
+				                for tx = 0, countX-1 do
+				                        gc:drawImage(
+				                                src, 0, 0, wImg, hImg,
+				                                math.floor(tx*wImg*s+ox+0.5),
+				                                math.floor(ty*hImg*s+oy+0.5),
+				                                math.max(1, math.floor(wImg*s+0.5)),
+				                                math.max(1, math.floor(hImg*s+0.5)))
+				                end
+				        end
 				end
 
 				if countX > 1 or countY > 1 then
@@ -1329,37 +1480,39 @@ local function stampBrushDialog(prefs)
 					gc:restore()
 				end
 
-				-- Original selection-edge overlay, restricted to the visible tiles.
-				if selEdgeImg then
-					gc:save()
-					gc.blendMode = BlendMode.DIFFERENCE
-					gc.color = Color{ red=255, green=255, blue=255, alpha=255 }
-					gc.strokeWidth = 1
-					for ty = 0, countY-1 do
-						for tx = 0, countX-1 do
-							local bx, by = tx*wImg, ty*hImg
-							local x1, y1 = math.max(0, math.floor(-ox/s)-bx), math.max(0, math.floor(-oy/s)-by)
-							local x2 = math.min(wImg-1, math.floor((gc.width-ox)/s)-bx)
-							local y2 = math.min(hImg-1, math.floor((gc.height-oy)/s)-by)
-							gc:beginPath()
-							for y = y1, y2 do
-								for x = x1, x2 do
-									local mask = selEdgeImg:getPixel(x, y)
-									if mask ~= 0 then
-										local cx = math.floor((bx+x)*s+ox+0.5)
-										local cy = math.floor((by+y)*s+oy+0.5)
-										local cw = math.max(1, math.floor(s+0.5))
-										if mask % 2 == 1 then gc:moveTo(cx, cy); gc:lineTo(cx+cw, cy) end
-										if math.floor(mask/2) % 2 == 1 then gc:moveTo(cx+cw, cy); gc:lineTo(cx+cw, cy+cw) end
-										if math.floor(mask/4) % 2 == 1 then gc:moveTo(cx, cy+cw); gc:lineTo(cx+cw, cy+cw) end
-										if mask >= 8 then gc:moveTo(cx, cy); gc:lineTo(cx, cy+cw) end
-									end
-								end
-							end
-							gc:stroke()
-						end
-					end
-					gc:restore()
+				-- The selection is frozen for this session, so its merged edge runs
+				-- can be transformed directly instead of searching the image each repaint.
+				if selEdges and #selEdges > 0 then
+				        gc:save()
+				        gc.blendMode = BlendMode.DIFFERENCE
+				        gc.color = Color{ red=255, green=255, blue=255, alpha=255 }
+				        gc.strokeWidth = 1
+
+				        for ty = 0, countY-1 do
+				                for tx = 0, countX-1 do
+				                        local bx, by = tx*wImg, ty*hImg
+
+				                        gc:beginPath()
+
+				                        for i = 1, #selEdges, 4 do
+				                                local ax = math.floor(
+				                                        (bx+selEdges[i])*s+ox+0.5)
+				                                local ay = math.floor(
+				                                        (by+selEdges[i+1])*s+oy+0.5)
+				                                local ex = math.floor(
+				                                        (bx+selEdges[i+2])*s+ox+0.5)
+				                                local ey = math.floor(
+				                                        (by+selEdges[i+3])*s+oy+0.5)
+
+				                                gc:moveTo(ax, ay)
+				                                gc:lineTo(ex, ey)
+				                        end
+
+				                        gc:stroke()
+				                end
+				        end
+
+				        gc:restore()
 				end
 			end,
 			onwheel=function(ev)
