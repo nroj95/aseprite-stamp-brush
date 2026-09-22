@@ -23,6 +23,7 @@ opacity = "Opacity",
 softness = "Softness",
 
 apply = "Apply",
+apply_requires_after = "You're viewing Before. Switch to After before applying changes.",
 reset = "Reset",
 before = "Before",
 after = "After",
@@ -1836,6 +1837,11 @@ local panDisplayCacheMaxPixels = 16000000
 		                        showBefore = not showBefore
 		                        updateCanvasCursor()
 		                        refreshPreview()
+		                elseif showBefore and applyActivate then
+		                        app.alert{
+		                                title=tr("clone_stamp"),
+		                                text=tr("apply_requires_after")
+		                        }
 		                elseif showBefore then
 		                        -- Comparison mode is view-only.
 		                        return

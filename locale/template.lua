@@ -24,6 +24,8 @@ return {
     softness = "Softness",
 
     apply = "Apply",
+    apply_requires_after =
+        "You're viewing Before. Switch to After before applying changes.",
     reset = "Reset",
     before = "Before",
     after = "After",

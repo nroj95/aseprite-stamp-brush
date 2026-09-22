@@ -19,6 +19,8 @@ return {
     softness = "Mjukskap",
 
     apply = "Bruk",
+    apply_requires_after =
+        "Du ser på Før. Byt til Etter før du brukar endringane.",
     reset = "Nullstill",
     before = "Før",
     after = "Etter",
