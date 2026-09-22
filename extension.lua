@@ -525,18 +525,7 @@ local function erasePixel(destination, coverage)
 end
 
 local function makeDisplayImage(image)
-	if celColorMode == ColorMode.RGB then return image end
-	local spec = ImageSpec(image.spec)
-	spec.colorMode = ColorMode.RGB
-	spec.transparentColor = 0
-	local display = Image(spec)
-	for y = 0, image.height - 1 do
-		for x = 0, image.width - 1 do
-			local r, g, b, a = pixelRGBA(image:getPixel(x, y))
-			display:drawPixel(x, y, app.pixelColor.rgba(r, g, b, a))
-		end
-	end
-	return display
+	return image
 end
 
 -- =========================================================================
@@ -1033,8 +1022,7 @@ local panDisplayCacheMaxPixels = 16000000
 			hoverPixels[key] = coverage
 			local current = workImg:getPixel(x, y)
 			local result = eraserOnly and erasePixel(current, coverage) or blendPixel(source, current, coverage)
-			local r, g, b, a = pixelRGBA(result)
-			stampPreview:drawPixel(x, y, app.pixelColor.rgba(r, g, b, a))
+			stampPreview:drawPixel(x, y, result)
 		end
 
 		if eraserOnly then
@@ -1074,10 +1062,7 @@ local panDisplayCacheMaxPixels = 16000000
 	                                coverage)
 	                end
 
-	                local r, g, b, a = pixelRGBA(result)
-	                previewDisplay:drawPixel(
-	                        x, y,
-	                        app.pixelColor.rgba(r, g, b, a))
+	                previewDisplay:drawPixel(x, y, result)
 	        end
 
 	        previewDirtyPixels = {}
@@ -1087,12 +1072,12 @@ local panDisplayCacheMaxPixels = 16000000
 
 	local function patchDisplayDelta(display, delta)
 	        if not display or not delta then return end
+
 	        for i = 1, #delta, 4 do
-	                local r, g, b, a = pixelRGBA(delta[i+3])
 	                display:drawPixel(
 	                        delta[i],
 	                        delta[i+1],
-	                        app.pixelColor.rgba(r, g, b, a))
+	                        delta[i+3])
 	        end
 	end
 
