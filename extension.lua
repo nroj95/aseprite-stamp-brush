@@ -152,6 +152,7 @@ local brushMask, brushMaskR, brushMaskS, brushMaskO = nil, -1, -1, -1
 local alphaAcc, colorAcc = nil, nil
 local previewDirtyPixels = {}
 local strokeDirtyPixels = {}
+local sessionDirtyPixels = {}
 local selMask, selBounds, selEdges = nil, nil, nil
 
 local function boundedNumber(value, fallback, minimum, maximum, integer)
@@ -180,6 +181,7 @@ local function disposeState()
 	paletteColors, paletteSize, paletteCache, paletteCacheSize = nil, 0, nil, 0
 	brushMask, brushMaskR, brushMaskS, brushMaskO = nil, -1, -1, -1
 	selMask, selBounds, selEdges = nil, nil, nil
+	sessionDirtyPixels = {}
 	resetAccum()
 end
 
@@ -300,10 +302,23 @@ local function initState(prefs)
 	softness = boundedNumber(prefs.softness, 0.67, 0, 1)
 	opacity = boundedNumber(prefs.opacity, 1, 0, 1)
 	spacing, tiledMode = 0.25, TILED_NONE
-	workImg = newSessionImage(sprite.width, sprite.height)
-	copyPixels(originalCel, workImg, celX, celY)
+
+        workImg = newSessionImage(sprite.width, sprite.height)
+        if app.apiVersion and app.apiVersion >= 32 then
+                -- BlendMode.SRC performs a direct native copy, preserving transparent
+                -- source pixels instead of alpha-compositing them over the destination.
+                workImg:drawImage(
+                        originalCel,
+                        Point(celX, celY),
+                        255,
+                        BlendMode.SRC)
+        else
+                -- Keep the original raw-pixel path for older Aseprite API versions.
+                copyPixels(originalCel, workImg, celX, celY)
+        end
 	snapshot = workImg
-	undoStack, undoPos = { [0] = Image(workImg) }, 0
+        undoStack, undoPos = { [0] = Image(workImg) }, 0
+        sessionDirtyPixels = {}
 
 	local selection = sprite.selection
 	if selection and not selection.isEmpty then
@@ -509,7 +524,7 @@ local function erasePixel(destination, coverage)
 end
 
 local function makeDisplayImage(image)
-	if celColorMode == ColorMode.RGB and not backgroundLayer then return image end
+	if celColorMode == ColorMode.RGB then return image end
 	local spec = ImageSpec(image.spec)
 	spec.colorMode = ColorMode.RGB
 	spec.transparentColor = 0
@@ -526,19 +541,36 @@ end
 -- =========================================================================
 -- Apply: preserve off-canvas pixels, linked cels, and native undo/redo
 -- =========================================================================
+local function updateSessionDirtyPixel(x, y, value)
+local original = undoStack and undoStack[0]
+if not original or not workImg then return end
+
+local key = y*workImg.width+x
+
+if value ~= original:getPixel(x, y) then
+sessionDirtyPixels[key] = true
+else
+sessionDirtyPixels[key] = nil
+end
+end
+
 local function getWorkDirtyBounds()
-	local original = undoStack and undoStack[0]
-	if not workImg or not original then return 0, 0, -1, -1 end
-	local x1, y1, x2, y2 = workImg.width, workImg.height, -1, -1
-	for y = 0, workImg.height - 1 do
-		for x = 0, workImg.width - 1 do
-			if workImg:getPixel(x, y) ~= original:getPixel(x, y) then
-				x1, y1 = math.min(x1, x), math.min(y1, y)
-				x2, y2 = math.max(x2, x), math.max(y2, y)
-			end
-		end
-	end
-	return x1, y1, x2, y2
+if not workImg or next(sessionDirtyPixels) == nil then
+return 0, 0, -1, -1
+end
+
+local x1, y1 = workImg.width, workImg.height
+local x2, y2 = -1, -1
+
+for key in pairs(sessionDirtyPixels) do
+local x = key % workImg.width
+local y = math.floor(key/workImg.width)
+
+x1, y1 = math.min(x1, x), math.min(y1, y)
+x2, y2 = math.max(x2, x), math.max(y2, y)
+end
+
+return x1, y1, x2, y2
 end
 
 local function validateSession()
@@ -737,6 +769,7 @@ local function commitAccumToWork()
             delta[index+2] = current
             delta[index+3] = result
             workImg:drawPixel(x, y, result)
+            updateSessionDirtyPixel(x, y, result)
         end
     end
 
@@ -1105,11 +1138,14 @@ local panDisplayCacheMaxPixels = 16000000
 
 	local function applyHistoryDelta(destination, delta, useAfter)
 	        local valueOffset = useAfter and 3 or 2
+
 	        for i = 1, #delta, 4 do
-	                destination:drawPixel(
-	                        delta[i],
-	                        delta[i+1],
-	                        delta[i+valueOffset])
+	                local x = delta[i]
+	                local y = delta[i+1]
+	                local value = delta[i+valueOffset]
+
+	                destination:drawPixel(x, y, value)
+	                updateSessionDirtyPixel(x, y, value)
 	        end
 	end
 
@@ -1169,6 +1205,7 @@ local panDisplayCacheMaxPixels = 16000000
 			local nextWork = Image(undoStack[0])
 			undoPos = 0
 			workImg, snapshot = nextWork, nextWork
+			sessionDirtyPixels = {}
 			invalidatePreview()
 		end
 		refreshPreview()
@@ -1925,6 +1962,7 @@ local panDisplayCacheMaxPixels = 16000000
 			local err = callbackError
 			cancelStroke()
 			workImg = Image(undoStack[0])
+			sessionDirtyPixels = {}
 			for historyPos = 1, undoPos do
 			        applyHistoryDelta(workImg, undoStack[historyPos], true)
 			end
